@@ -5,6 +5,7 @@ import SwiftUI
 public enum Theme {
     // MARK: Typography
 
+    public static let titleFont: Font = .system(size: 24, weight: .bold)
     public static let l0Font: Font = .system(size: 20, weight: .semibold)
     public static let l1Font: Font = .system(size: 16, weight: .medium)
     public static let l2Font: Font = .system(size: 15, weight: .regular)
