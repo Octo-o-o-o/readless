@@ -1,9 +1,9 @@
-"""Podcast generation service: script generation via Claude, audio via ElevenLabs."""
+"""Podcast generation service: script generation via OpenAI-compatible API, audio via ElevenLabs."""
 
 import json
 import uuid
 
-import anthropic
+import openai
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,14 +15,17 @@ from app.services.storage import StorageService
 
 class PodcastService:
     def __init__(self):
-        self._client: anthropic.Anthropic | None = None
+        self._client: openai.OpenAI | None = None
         self._storage: StorageService | None = None
 
     @property
-    def client(self) -> anthropic.Anthropic:
-        """Lazily create the Anthropic client on first access."""
+    def client(self) -> openai.OpenAI:
+        """Lazily create the OpenAI client on first access."""
         if self._client is None:
-            self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            self._client = openai.OpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+            )
         return self._client
 
     @property
@@ -64,10 +67,10 @@ class PodcastService:
         return podcast
 
     async def _generate_script(self, content: Content) -> dict:
-        """Use Claude to generate a conversational podcast script from content."""
+        """Use AI to generate a conversational podcast script from content."""
         outline_text = json.dumps(content.l1_outline, ensure_ascii=False)
-        message = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+        message = self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=3000,
             messages=[
                 {
@@ -99,7 +102,7 @@ JSON only.""",
                 }
             ],
         )
-        raw = message.content[0].text
+        raw = message.choices[0].message.content
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
         return json.loads(raw)
