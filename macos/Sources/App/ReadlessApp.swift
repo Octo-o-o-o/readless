@@ -116,53 +116,38 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettingsView()
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
-
-            HotkeysSettingsView()
-                .tabItem {
-                    Label("Hotkeys", systemImage: "keyboard")
-                }
-
+                .tabItem { Label("General", systemImage: "gear") }
+            HotkeySettingsView()
+                .tabItem { Label("Hotkeys", systemImage: "keyboard") }
             ChannelsSettingsView()
-                .tabItem {
-                    Label("Channels", systemImage: "antenna.radiowaves.left.and.right")
-                }
-
+                .tabItem { Label("Channels", systemImage: "antenna.radiowaves.left.and.right") }
             AccountSettingsView()
-                .tabItem {
-                    Label("Account", systemImage: "person.circle")
-                }
+                .tabItem { Label("Account", systemImage: "person.circle") }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 550, height: 400)
     }
 }
 
 struct GeneralSettingsView: View {
     var body: some View {
-        Text("General settings will appear here.")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct HotkeysSettingsView: View {
-    var body: some View {
-        Text("Hotkey settings will appear here.")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Form {
+            Text("General settings placeholder")
+        }
     }
 }
 
 struct ChannelsSettingsView: View {
     var body: some View {
-        Text("Channel settings will appear here.")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Form {
+            Text("Folder watch, email, RSS settings placeholder")
+        }
     }
 }
 
 struct AccountSettingsView: View {
     var body: some View {
-        Text("Account settings will appear here.")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Form {
+            Text("Account & subscription placeholder")
+        }
     }
 }
