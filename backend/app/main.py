@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers.content import router as content_router
+from app.routers.podcast import router as podcast_router
 from app.routers.search import router as search_router
 
 app = FastAPI(
@@ -22,6 +23,7 @@ app.add_middleware(
 
 
 app.include_router(content_router)
+app.include_router(podcast_router)
 app.include_router(search_router)
 
 
