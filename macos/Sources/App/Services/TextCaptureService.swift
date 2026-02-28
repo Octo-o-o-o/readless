@@ -23,9 +23,12 @@ final class TextCaptureService {
         )
         guard focusResult == .success else { return nil }
 
+        // AXUIElement is a CoreFoundation type; cast from AnyObject always succeeds.
+        let element = focusedElement! as! AXUIElement
+
         var selectedText: AnyObject?
         let textResult = AXUIElementCopyAttributeValue(
-            focusedElement as! AXUIElement,
+            element,
             kAXSelectedTextAttribute as CFString,
             &selectedText
         )

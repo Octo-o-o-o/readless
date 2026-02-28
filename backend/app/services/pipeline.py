@@ -33,7 +33,8 @@ class ProcessingPipeline:
         source_app_name: str | None = None,
         source_app_bundle_id: str | None = None,
         channel: str = "manual",
-        db: AsyncSession = None,
+        *,
+        db: AsyncSession,
     ) -> Content:
         """Run the full extract -> summarize -> store pipeline."""
         content_id = str(uuid.uuid4())
@@ -83,9 +84,10 @@ class ProcessingPipeline:
                 )
             )
 
-        await db.commit()
+        # Step 5: Flush to get rows into the DB (within same transaction)
+        await db.flush()
 
-        # Step 5: Update full-text search vectors
+        # Step 6: Update full-text search vectors (same transaction as insert)
         await db.execute(
             text("""
             UPDATE contents SET full_text_tsv =
@@ -105,5 +107,6 @@ class ProcessingPipeline:
             {"id": content_id},
         )
 
+        # Single atomic commit: rows + FTS vectors
         await db.commit()
         return content

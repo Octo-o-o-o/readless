@@ -42,7 +42,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "anthropic>=0.43.0",
+    "openai>=1.10.0",
     "trafilatura>=2.0.0",
     "httpx>=0.28.0",
     "asyncpg>=0.30.0",
@@ -197,7 +197,7 @@ R2_ACCESS_KEY=
 R2_SECRET_KEY=
 R2_BUCKET=readless
 ELEVENLABS_API_KEY=
-DOMAIN=api.readless.app
+DOMAIN=readless.cc
 CORS_ORIGINS=["*"]
 ```
 

@@ -81,10 +81,11 @@ async def list_contents(
 async def get_content(
     content_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get a single content item by ID."""
     content = await db.get(Content, content_id)
-    if not content:
+    if not content or content.user_id != user_id:
         raise HTTPException(404, "Content not found")
     return _to_response(content)
 
@@ -93,8 +94,12 @@ async def get_content(
 async def get_paragraphs(
     content_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get all paragraphs for a content item, ordered by position."""
+    content = await db.get(Content, content_id)
+    if not content or content.user_id != user_id:
+        raise HTTPException(404, "Content not found")
     result = await db.execute(
         select(Paragraph)
         .where(Paragraph.content_id == content_id)
@@ -111,10 +116,11 @@ async def expand_point(
     content_id: str,
     req: ExpandRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Expand an outline point into a detailed explanation."""
     content = await db.get(Content, content_id)
-    if not content:
+    if not content or content.user_id != user_id:
         raise HTTPException(404)
     paras_result = await db.execute(
         select(Paragraph)
@@ -145,10 +151,11 @@ async def ask_followup(
     content_id: str,
     req: FollowUpRequest,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Answer a follow-up question based on the content."""
     content = await db.get(Content, content_id)
-    if not content:
+    if not content or content.user_id != user_id:
         raise HTTPException(404)
     paras_result = await db.execute(
         select(Paragraph)

@@ -39,7 +39,8 @@ struct ReaderView: View {
             Task { await viewModel.expandPoint(at: viewModel.focusedIndex) }
             return .handled
         }
-        .task {
+        .task(id: contentID) {
+            await viewModel.loadContent(contentID: contentID)
             await viewModel.loadParagraphs(contentID: contentID)
         }
     }

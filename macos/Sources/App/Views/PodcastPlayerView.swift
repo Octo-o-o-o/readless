@@ -47,7 +47,7 @@ struct PodcastPlayerView: View {
                     ForEach(Array(viewModel.chapters.enumerated()), id: \.offset) { index, chapter in
                         HStack {
                             Circle()
-                                .fill(index == viewModel.currentChapterIndex ? Theme.accent : .tertiary)
+                                .fill(index == viewModel.currentChapterIndex ? Theme.accent : Color.gray.opacity(0.3))
                                 .frame(width: 6, height: 6)
                             Text(chapter.title)
                                 .font(index == viewModel.currentChapterIndex ? Theme.l1Font : Theme.l2Font)
@@ -60,7 +60,7 @@ struct PodcastPlayerView: View {
         .padding()
         .focusable()
         .onKeyPress(.space) { viewModel.togglePlayPause(); return .handled }
-        .onKeyPress(characters: "[") { viewModel.previousChapter(); return .handled }
-        .onKeyPress(characters: "]") { viewModel.nextChapter(); return .handled }
+        .onKeyPress(characters: CharacterSet(charactersIn: "[")) { _ in viewModel.previousChapter(); return .handled }
+        .onKeyPress(characters: CharacterSet(charactersIn: "]")) { _ in viewModel.nextChapter(); return .handled }
     }
 }

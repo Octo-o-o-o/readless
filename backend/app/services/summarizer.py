@@ -1,4 +1,4 @@
-"""AI summarization service using Claude for multi-level summaries."""
+"""AI summarization service using OpenAI-compatible APIs for multi-level summaries."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 import re
 
-import anthropic
+import openai
 
 from app.config import settings
 from app.schemas.summary import ContentSummary, OutlinePoint
@@ -64,10 +64,13 @@ paragraphs using [¶N] markers."""
 
 
 class SummarizationService:
-    """Produces multi-level summaries via the Anthropic Claude API."""
+    """Produces multi-level summaries via OpenAI-compatible APIs."""
 
     def __init__(self) -> None:
-        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        self.client = openai.AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+        )
 
     # ------------------------------------------------------------------ #
     #  Helpers
@@ -98,11 +101,11 @@ class SummarizationService:
         """Generate an L0 one-line summary and L1 structured outline."""
         annotated_text = self._build_annotated_text(content)
 
-        message = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+        message = await self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=2000,
-            system=SUMMARIZE_SYSTEM_PROMPT,
             messages=[
+                {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": SUMMARIZE_USER_PROMPT.format(
@@ -112,7 +115,9 @@ class SummarizationService:
             ],
         )
 
-        raw_text = message.content[0].text
+        raw_text = message.choices[0].message.content
+        if not raw_text:
+            raise ValueError("OpenAI returned empty content for summarization")
         cleaned = self._strip_code_fences(raw_text)
         data = json.loads(cleaned)
 
@@ -136,11 +141,11 @@ class SummarizationService:
         """Expand a specific outline point into 2-3 detailed paragraphs."""
         annotated_text = self._build_annotated_text(content)
 
-        message = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+        message = await self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=2000,
-            system=EXPAND_SYSTEM_PROMPT,
             messages=[
+                {"role": "system", "content": EXPAND_SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": EXPAND_USER_PROMPT.format(
@@ -152,7 +157,7 @@ class SummarizationService:
             ],
         )
 
-        return message.content[0].text
+        return message.choices[0].message.content or ""
 
     # ------------------------------------------------------------------ #
     #  L3: Follow-up Q&A
@@ -164,11 +169,11 @@ class SummarizationService:
         """Answer a follow-up question based ONLY on the content."""
         annotated_text = self._build_annotated_text(content)
 
-        message = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+        message = await self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=2000,
-            system=FOLLOWUP_SYSTEM_PROMPT,
             messages=[
+                {"role": "system", "content": FOLLOWUP_SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": FOLLOWUP_USER_PROMPT.format(
@@ -179,4 +184,4 @@ class SummarizationService:
             ],
         )
 
-        return message.content[0].text
+        return message.choices[0].message.content or ""

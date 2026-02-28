@@ -128,7 +128,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .allItems: return "tray.full"
-        case .unread: return "circle.badge"
+        case .unread: return "envelope.badge"
         case .favorites: return "star"
         case .knowledgeBase: return "brain"
         }

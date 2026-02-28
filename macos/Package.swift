@@ -56,7 +56,16 @@ let package = Package(
                 "UI",
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ],
-            path: "Sources/App"
+            path: "Sources/App",
+            exclude: ["Resources"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/App/Resources/Info.plist"
+                ])
+            ]
         ),
 
         // MARK: - Tests

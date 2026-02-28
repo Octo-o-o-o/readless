@@ -25,17 +25,17 @@ final class ContentManager {
 
     // MARK: - Private
 
-    private let api = APIClient()
+    private let api = APIClient.shared
 
     private init() {}
 
     // MARK: - Import Methods
 
     /// Import content silently -- saves in the background with a brief toast notification.
-    func importSilently(text: String, appName: String?, bundleID: String?) async {
+    func importSilently(text: String, appName: String?, bundleID: String?, sourceType: String? = nil) async {
         showToast("Received from \(appName ?? "clipboard")")
         do {
-            let sourceType = text.hasPrefix("http") ? "url" : "text"
+            let sourceType = sourceType ?? (text.hasPrefix("http") ? "url" : "text")
             let content = try await api.createContent(
                 sourceType: sourceType,
                 body: text,

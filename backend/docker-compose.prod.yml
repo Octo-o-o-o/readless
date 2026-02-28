@@ -1,0 +1,54 @@
+# Production Docker Compose for Readless Backend
+# 适配现有nginx反向代理的配置
+
+services:
+  api:
+    build: .
+    ports:
+      # 仅绑定到localhost，通过nginx代理访问
+      - "127.0.0.1:8001:8000"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - readless
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: readless
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-readless}
+      POSTGRES_DB: readless
+      # 性能优化配置
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_MAX_CONNECTIONS: 50
+    ports:
+      # 使用5433避免与现有PostgreSQL冲突
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U readless"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - readless
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  readless:
+    driver: bridge

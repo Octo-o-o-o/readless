@@ -38,6 +38,22 @@ public struct Content: Identifiable, Codable, Sendable {
     public let createdAt: Date
     public var podcastURL: String?
 
+    // Explicit CodingKeys because .convertFromSnakeCase maps
+    // "source_url" → "sourceUrl" (not "sourceURL") and
+    // "source_app_bundle_id" → "sourceAppBundleId" (not "sourceAppBundleID").
+    private enum CodingKeys: String, CodingKey {
+        case id, title
+        case sourceURL = "source_url"
+        case sourceType = "source_type"
+        case sourceAppName = "source_app_name"
+        case sourceAppBundleID = "source_app_bundle_id"
+        case l0Summary = "l0_summary"
+        case l1Outline = "l1_outline"
+        case tags, status
+        case createdAt = "created_at"
+        case podcastURL = "podcast_url"
+    }
+
     public init(
         id: String = UUID().uuidString,
         title: String,

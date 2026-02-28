@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 import httpx
@@ -87,13 +89,16 @@ class ContentExtractor:
         Primary strategy: trafilatura.
         Fallback: Jina Reader API.
         """
-        downloaded = trafilatura.fetch_url(url)
+        loop = asyncio.get_event_loop()
+        downloaded = await loop.run_in_executor(None, trafilatura.fetch_url, url)
         body: str | None = None
         title: str | None = None
 
         if downloaded:
-            body = trafilatura.extract(downloaded)
-            title = trafilatura.extract(downloaded, output_format="xmltei")
+            body = await loop.run_in_executor(None, trafilatura.extract, downloaded)
+            title = await loop.run_in_executor(
+                None, partial(trafilatura.extract, downloaded, output_format="xmltei")
+            )
             # Try to pull <title> from the TEI header
             if title:
                 m = re.search(r"<title[^>]*>([^<]+)</title>", title)
@@ -149,14 +154,17 @@ class ContentExtractor:
     async def extract_pdf(self, file_path: str) -> ExtractedContent:
         """Extract text from every page of the PDF at *file_path*."""
         path = Path(file_path)
-        pages_text: list[str] = []
 
-        with pdfplumber.open(path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    pages_text.append(page_text)
+        def _do_pdf() -> list[str]:
+            pages: list[str] = []
+            with pdfplumber.open(path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        pages.append(page_text)
+            return pages
 
+        pages_text = await asyncio.get_event_loop().run_in_executor(None, _do_pdf)
         full_text = "\n\n".join(pages_text)
         paragraphs = self._segment_paragraphs(full_text)
         return ExtractedContent(
@@ -173,8 +181,12 @@ class ContentExtractor:
     async def extract_image(self, file_path: str) -> ExtractedContent:
         """Run OCR on the image at *file_path* (Chinese + English)."""
         path = Path(file_path)
-        image = Image.open(path)
-        full_text: str = pytesseract.image_to_string(image, lang="chi_sim+eng")
+
+        def _do_ocr() -> str:
+            image = Image.open(path)
+            return pytesseract.image_to_string(image, lang="chi_sim+eng")
+
+        full_text = await asyncio.get_event_loop().run_in_executor(None, _do_ocr)
         paragraphs = self._segment_paragraphs(full_text)
         return ExtractedContent(
             title=path.stem,

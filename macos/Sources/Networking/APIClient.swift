@@ -16,9 +16,12 @@ public typealias APIClientError = APIError
 
 // MARK: - API Client
 
-public final class APIClient: Sendable {
+public final class APIClient: @unchecked Sendable {
+    public static let shared = APIClient()
+
     public let baseURL: URL
-    private let authToken: String?
+    // Mutable so the token can be updated after authentication.
+    public var authToken: String?
     private let session: URLSession
 
     public init(
@@ -34,7 +37,10 @@ public final class APIClient: Sendable {
     // MARK: - Generic Request
 
     private func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
-        var req = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.invalidURL
+        }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = authToken {
@@ -88,6 +94,27 @@ public final class APIClient: Sendable {
         return try JSONDecoder().decode(Resp.self, from: data).text
     }
 
+    /// Get a single content item by ID.
+    public func getContent(id: String) async throws -> Content {
+        let data = try await request("/api/v1/content/\(id)")
+        return try JSONDecoder.apiDecoder.decode(Content.self, from: data)
+    }
+
+    /// Get all paragraphs for a content item, ordered by position.
+    public func getParagraphs(contentID: String) async throws -> [ParagraphResponse] {
+        let data = try await request("/api/v1/content/\(contentID)/paragraphs")
+        return try JSONDecoder.apiDecoder.decode([ParagraphResponse].self, from: data)
+    }
+
+    /// Ask a follow-up question about a content item.
+    public func askFollowUp(contentID: String, question: String) async throws -> String {
+        struct Req: Encodable { let question: String }
+        struct Resp: Decodable { let text: String }
+        let payload = try JSONEncoder().encode(Req(question: question))
+        let data = try await request("/api/v1/content/\(contentID)/ask", method: "POST", body: payload)
+        return try JSONDecoder().decode(Resp.self, from: data).text
+    }
+
     /// Search across all content using a natural-language query.
     public func search(query: String) async throws -> SearchResult {
         struct Req: Encodable { let query: String }
@@ -118,16 +145,46 @@ public struct SearchSource: Codable, Sendable, Identifiable {
     public let title: String
     public let l0Summary: String?
     public let sourceURL: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title
+        case l0Summary = "l0_summary"
+        case sourceURL = "source_url"
+    }
+}
+
+// MARK: - Paragraph Response
+
+public struct ParagraphResponse: Codable, Sendable {
+    public let anchorID: String
+    public let text: String
+    public let position: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case anchorID = "anchor_id"
+        case text, position
+    }
 }
 
 // MARK: - JSON Decoder Extension
 
 extension JSONDecoder {
-    /// A shared decoder configured for the Readless API's snake_case + ISO-8601 conventions.
+    /// A shared decoder configured for the Readless API conventions.
+    /// Models provide their own CodingKeys for snake_case mapping so
+    /// we do NOT use `.convertFromSnakeCase` here (it would double-convert).
     public static let apiDecoder: JSONDecoder = {
         let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        d.dateDecodingStrategy = .iso8601
+        let iso = ISO8601DateFormatter()
+        let isoFrac = ISO8601DateFormatter()
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        d.dateDecodingStrategy = .custom { decoder in
+            let str = try decoder.singleValueContainer().decode(String.self)
+            if let date = isoFrac.date(from: str) { return date }
+            if let date = iso.date(from: str) { return date }
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath,
+                      debugDescription: "Invalid date: \(str)"))
+        }
         return d
     }()
 }

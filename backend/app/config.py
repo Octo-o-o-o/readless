@@ -14,11 +14,14 @@ class Settings(BaseSettings):
     # --- Database ---
     database_url: str = "postgresql+asyncpg://readless:readless@localhost:5432/readless"
 
-    # --- Anthropic ---
-    anthropic_api_key: str = ""
+    # --- OpenAI (or compatible APIs like Volcengine, OpenRouter) ---
+    openai_api_key: str = ""
+    openai_base_url: str | None = None  # Optional: for custom endpoints
+    openai_model: str = "gpt-4o"  # Default model for all AI tasks
 
     # --- Clerk ---
     clerk_secret_key: str = ""
+    clerk_domain: str = ""  # e.g. "your-app.clerk.accounts.dev"
 
     # --- Cloudflare R2 ---
     r2_endpoint: str = ""
@@ -28,6 +31,7 @@ class Settings(BaseSettings):
 
     # --- ElevenLabs ---
     elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Default: Rachel
 
     # --- CORS ---
     cors_origins: list[str] = ["http://localhost:3000"]

@@ -1,23 +1,35 @@
 """Agentic search: intent parsing, PostgreSQL FTS, AI ranking, answer synthesis."""
 
 import json
+import re
 
-import anthropic
+import openai
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 
 
+def _strip_code_fences(text_val: str) -> str:
+    """Remove markdown code block fences if present."""
+    text_val = text_val.strip()
+    text_val = re.sub(r"^```(?:json)?\s*\n?", "", text_val)
+    text_val = re.sub(r"\n?```\s*$", "", text_val)
+    return text_val.strip()
+
+
 class SearchAgent:
     def __init__(self):
-        self._client: anthropic.Anthropic | None = None
+        self._client: openai.AsyncOpenAI | None = None
 
     @property
-    def client(self) -> anthropic.Anthropic:
-        """Lazily create the Anthropic client on first access."""
+    def client(self) -> openai.AsyncOpenAI:
+        """Lazily create the async OpenAI client on first access."""
         if self._client is None:
-            self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            self._client = openai.AsyncOpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+            )
         return self._client
 
     async def search(self, query: str, user_id: str, db: AsyncSession) -> dict:
@@ -41,8 +53,8 @@ class SearchAgent:
 
     async def _parse_intent(self, query: str) -> dict:
         """Use AI to parse a natural-language query into structured intent."""
-        message = self.client.messages.create(
-            model="claude-haiku-3-5-20241022",
+        message = await self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=300,
             messages=[
                 {
@@ -57,25 +69,25 @@ JSON only.""",
                 }
             ],
         )
-        raw = message.content[0].text
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-        return json.loads(raw)
+        raw = message.choices[0].message.content
+        if not raw:
+            return {"search_terms": [], "time_filter": None, "source_type": None}
+        return json.loads(_strip_code_fences(raw))
 
     async def _search_index(
         self, intent: dict, user_id: str, db: AsyncSession
     ) -> list:
         """Query PostgreSQL full-text search index with parsed intent."""
         terms = intent.get("search_terms", [])
-        ts_query = " | ".join(terms) if terms else ""
+        query_str = " ".join(terms) if terms else ""
 
         sql = """
-            SELECT *, ts_rank_cd(full_text_tsv, to_tsquery('simple', :query)) AS rank
+            SELECT *, ts_rank_cd(full_text_tsv, websearch_to_tsquery('simple', :query)) AS rank
             FROM contents
             WHERE user_id = :user_id
-              AND full_text_tsv @@ to_tsquery('simple', :query)
+              AND full_text_tsv @@ websearch_to_tsquery('simple', :query)
         """
-        params: dict = {"user_id": user_id, "query": ts_query}
+        params: dict = {"user_id": user_id, "query": query_str}
 
         time_filter = intent.get("time_filter")
         if time_filter == "7d":
@@ -92,7 +104,8 @@ JSON only.""",
         if not rows and terms:
             tag_sql = """
                 SELECT * FROM contents
-                WHERE user_id = :user_id AND (tags && :terms OR keywords && :terms)
+                WHERE user_id = :user_id
+                  AND (tags && CAST(:terms AS text[]) OR keywords && CAST(:terms AS text[]))
                 ORDER BY created_at DESC LIMIT 10
             """
             result = await db.execute(
@@ -111,8 +124,8 @@ JSON only.""",
             f"[{i}] {c.title} — {c.l0_summary} (tags: {c.tags})"
             for i, c in enumerate(candidates)
         )
-        message = self.client.messages.create(
-            model="claude-haiku-3-5-20241022",
+        message = await self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=100,
             messages=[
                 {
@@ -123,11 +136,14 @@ Return JSON array of indices, most relevant first. JSON only.""",
                 }
             ],
         )
-        raw = message.content[0].text
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-        indices = json.loads(raw)
-        return [candidates[i] for i in indices if i < len(candidates)]
+        raw = message.choices[0].message.content
+        if not raw:
+            return candidates
+        try:
+            indices = json.loads(_strip_code_fences(raw))
+            return [candidates[i] for i in indices if i < len(candidates)]
+        except (json.JSONDecodeError, IndexError, TypeError):
+            return candidates
 
     async def _generate_answer(self, query: str, sources: list) -> dict:
         """Synthesize a final answer from top-ranked sources."""
@@ -136,8 +152,8 @@ Return JSON array of indices, most relevant first. JSON only.""",
             f"Outline: {json.dumps(s.l1_outline, ensure_ascii=False)}"
             for s in sources[:5]
         )
-        message = self.client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+        message = await self.client.chat.completions.create(
+            model=settings.openai_model,
             max_tokens=500,
             messages=[
                 {
@@ -154,7 +170,7 @@ If the answer spans multiple sources, synthesize them. If no source answers the 
             ],
         )
         return {
-            "answer": message.content[0].text,
+            "answer": message.choices[0].message.content or "No answer generated.",
             "sources": [
                 {
                     "id": s.id,

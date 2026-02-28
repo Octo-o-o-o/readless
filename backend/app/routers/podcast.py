@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user_id
 from app.database import get_db
 from app.models.content import Content
 from app.models.podcast import Podcast
@@ -26,10 +27,11 @@ def _get_service() -> PodcastService:
 async def generate_podcast(
     content_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Generate a podcast from an existing content item."""
     content = await db.get(Content, content_id)
-    if not content:
+    if not content or content.user_id != user_id:
         raise HTTPException(404, "Content not found")
 
     # Check for existing ready podcast
@@ -50,8 +52,12 @@ async def generate_podcast(
 async def get_podcast(
     content_id: str,
     db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Get the latest podcast for a content item."""
+    content = await db.get(Content, content_id)
+    if not content or content.user_id != user_id:
+        raise HTTPException(404, "Content not found")
     result = await db.execute(
         select(Podcast)
         .where(Podcast.content_id == content_id)

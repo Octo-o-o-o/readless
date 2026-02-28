@@ -13,8 +13,8 @@ final class PodcastPlayerViewModel: NSObject {
     var currentChapterIndex: Int = 0
     var chapters: [(title: String, outlinePointIndex: Int?)] = []
 
-    private var player: AVPlayer?
-    private var timeObserver: Any?
+    nonisolated(unsafe) private var player: AVPlayer?
+    nonisolated(unsafe) private var timeObserver: Any?  // nonisolated(unsafe) needed for deinit access
 
     // MARK: - Loading
 
@@ -55,6 +55,12 @@ final class PodcastPlayerViewModel: NSObject {
 
     func previousChapter() {
         if currentChapterIndex > 0 { currentChapterIndex -= 1 }
+    }
+
+    deinit {
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+        }
     }
 
     // MARK: - Formatting

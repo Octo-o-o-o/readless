@@ -1,6 +1,8 @@
 """Podcast generation service: script generation via OpenAI-compatible API, audio via ElevenLabs."""
 
+import asyncio
 import json
+import re
 import uuid
 
 import openai
@@ -15,14 +17,14 @@ from app.services.storage import StorageService
 
 class PodcastService:
     def __init__(self):
-        self._client: openai.OpenAI | None = None
+        self._client: openai.AsyncOpenAI | None = None
         self._storage: StorageService | None = None
 
     @property
-    def client(self) -> openai.OpenAI:
-        """Lazily create the OpenAI client on first access."""
+    def client(self) -> openai.AsyncOpenAI:
+        """Lazily create the async OpenAI client on first access."""
         if self._client is None:
-            self._client = openai.OpenAI(
+            self._client = openai.AsyncOpenAI(
                 api_key=settings.openai_api_key,
                 base_url=settings.openai_base_url,
             )
@@ -49,9 +51,11 @@ class PodcastService:
             # Step 2: Generate audio via ElevenLabs Text to Dialogue
             audio_bytes = await self._generate_audio(script["dialogue"])
 
-            # Step 3: Upload to R2
+            # Step 3: Upload to R2 (sync boto3 call, offloaded to thread pool)
             key = f"podcasts/{content.user_id}/{podcast_id}.mp3"
-            audio_url = self.storage.upload_audio(key, audio_bytes)
+            audio_url = await asyncio.get_event_loop().run_in_executor(
+                None, self.storage.upload_audio, key, audio_bytes
+            )
 
             # Step 4: Update podcast record
             podcast.audio_url = audio_url
@@ -69,7 +73,7 @@ class PodcastService:
     async def _generate_script(self, content: Content) -> dict:
         """Use AI to generate a conversational podcast script from content."""
         outline_text = json.dumps(content.l1_outline, ensure_ascii=False)
-        message = self.client.chat.completions.create(
+        message = await self.client.chat.completions.create(
             model=settings.openai_model,
             max_tokens=3000,
             messages=[
@@ -103,20 +107,27 @@ JSON only.""",
             ],
         )
         raw = message.choices[0].message.content
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-        return json.loads(raw)
+        if not raw:
+            raise ValueError("OpenAI returned empty content for podcast script")
+        raw = raw.strip()
+        raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+        raw = re.sub(r"\n?```\s*$", "", raw)
+        return json.loads(raw.strip())
 
     async def _generate_audio(self, dialogue_text: str) -> bytes:
-        """Use ElevenLabs Text to Dialogue API to convert script to audio."""
+        """Use ElevenLabs TTS API to convert script to audio."""
+        voice_id = settings.elevenlabs_voice_id
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://api.elevenlabs.io/v1/text-to-dialogue",
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
                 headers={
                     "xi-api-key": settings.elevenlabs_api_key,
                     "Content-Type": "application/json",
                 },
-                json={"text": dialogue_text},
+                json={
+                    "text": dialogue_text,
+                    "model_id": "eleven_multilingual_v2",
+                },
                 timeout=120,
             )
             resp.raise_for_status()

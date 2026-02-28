@@ -12,6 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let watchedFoldersKey = "watchedFolderPaths"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // SPM executables launch as background processes by default.
+        // This makes the app a regular foreground app with Dock icon and windows.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+
         // MARK: Hotkey Service
 
         hotkeyService = HotkeyService(
@@ -73,17 +78,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sourceType = "text"
             }
 
-            // Read text-based files; for binary types pass the file path as body.
+            // Read text-based files directly; encode binary types as base64.
             let body: String
             if ["pdf", "png", "jpg", "jpeg"].contains(ext) {
-                body = path // Backend handles file paths for binary types.
+                guard let data = FileManager.default.contents(atPath: path) else { continue }
+                body = data.base64EncodedString()
             } else {
-                body = (try? String(contentsOfFile: path, encoding: .utf8)) ?? path
+                body = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+                if body.isEmpty { continue }
             }
 
             Task { @MainActor in
                 await ContentManager.shared.importSilently(
-                    text: body, appName: "Folder Watch: \(fileName)", bundleID: nil
+                    text: body, appName: "Folder Watch: \(fileName)", bundleID: nil,
+                    sourceType: sourceType
                 )
             }
         }
