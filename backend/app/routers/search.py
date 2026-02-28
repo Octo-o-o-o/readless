@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user_id
 from app.database import get_db
 from app.services.search_agent import SearchAgent
 
@@ -18,11 +19,6 @@ def _get_agent() -> SearchAgent:
     if _agent is None:
         _agent = SearchAgent()
     return _agent
-
-
-# TODO: Replace with Clerk auth middleware
-def get_current_user_id() -> str:
-    return "dev-user"
 
 
 class SearchRequest(BaseModel):

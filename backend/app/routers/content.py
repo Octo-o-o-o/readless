@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user_id
 from app.database import get_db
 from app.models.content import Content
 from app.models.paragraph import Paragraph
@@ -37,11 +38,6 @@ def _get_summarizer() -> SummarizationService:
     if _summarizer is None:
         _summarizer = SummarizationService()
     return _summarizer
-
-
-# TODO: Replace with Clerk auth middleware
-def get_current_user_id() -> str:
-    return "dev-user"
 
 
 @router.post("/", response_model=ContentResponse)
