@@ -10,12 +10,9 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir .
-
-# Copy application code
+# Copy application code and install Python dependencies
 COPY . .
+RUN pip install --no-cache-dir .
 
 EXPOSE 8000
 
