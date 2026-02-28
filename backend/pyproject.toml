@@ -1,0 +1,46 @@
+[project]
+name = "readless"
+version = "0.1.0"
+description = "Readless - AI-powered reading assistant backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "anthropic>=0.49,<1",
+    "trafilatura>=2.0,<3",
+    "httpx>=0.28,<1",
+    "asyncpg>=0.30,<1",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "alembic>=1.14,<2",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "python-multipart>=0.0.18,<1",
+    "boto3>=1.36,<2",
+    "pillow>=11,<12",
+    "pytesseract>=0.3,<1",
+    "pdfplumber>=0.11,<1",
+    "clerk-backend-api>=1.5,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.25,<1",
+    "httpx>=0.28,<1",
+    "ruff>=0.9,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.backends"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
