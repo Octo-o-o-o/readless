@@ -25,25 +25,84 @@ struct ReadlessApp: App {
 // MARK: - Main Content View
 
 struct ContentView: View {
+    @State private var contentManager = ContentManager.shared
     @State private var selectedSection: SidebarSection? = .allItems
+    @State private var selectedContentID: String?
 
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $selectedSection)
+        } content: {
+            ContentListView(
+                contents: filteredContents,
+                selectedID: $selectedContentID
+            )
+            .navigationTitle(selectedSection?.title ?? "All Items")
         } detail: {
-            if let section = selectedSection {
-                Text("Select an item from \(section.title)")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Text("Select a section")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            detailView
         }
         .frame(minWidth: 800, minHeight: 600)
+        .toastOverlay()
+        .overlay(alignment: .bottom) {
+            capsuleOverlay
+                .padding(.bottom, 24)
+        }
+        .task {
+            await contentManager.loadContents()
+        }
+    }
+
+    // MARK: - Filtered Contents
+
+    /// Returns content items filtered by the currently selected sidebar section.
+    private var filteredContents: [Content] {
+        switch selectedSection {
+        case .allItems, .none:
+            return contentManager.contents
+        case .unread:
+            return contentManager.contents.filter { $0.status == .pending || $0.status == .processing }
+        case .favorites:
+            // Favorites not yet implemented; return empty for now.
+            return []
+        case .knowledgeBase:
+            return contentManager.contents.filter { $0.status == .ready }
+        }
+    }
+
+    // MARK: - Detail View
+
+    @ViewBuilder
+    private var detailView: some View {
+        if let contentID = selectedContentID {
+            ReaderView(contentID: contentID)
+        } else {
+            ContentUnavailableView(
+                "No Content Selected",
+                systemImage: "doc.text",
+                description: Text("Select a content item to view its summary.")
+            )
+        }
+    }
+
+    // MARK: - Capsule Overlay
+
+    @ViewBuilder
+    private var capsuleOverlay: some View {
+        if contentManager.capsuleState != .dismissed {
+            CapsuleProgressView(
+                state: $contentManager.capsuleState,
+                onCancel: {
+                    contentManager.cancelProcessing()
+                },
+                onConfirm: {
+                    if let content = contentManager.processingContent {
+                        selectedContentID = content.id
+                    }
+                    contentManager.capsuleState = .dismissed
+                    contentManager.showResultPanel = false
+                }
+            )
+        }
     }
 }
 
