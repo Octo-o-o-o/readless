@@ -54,6 +54,47 @@ public final class LocalDatabase {
             try db.create(index: "idx_contents_synced_at", on: "contents", columns: ["synced_at"])
         }
 
+        migrator.registerMigration("v2") { db in
+            // Create command history table
+            try db.create(table: "command_history") { t in
+                t.column("id", .text).primaryKey()
+                t.column("query", .text).notNull()
+                t.column("input_type", .text).notNull()
+                t.column("executed_at", .datetime).notNull()
+                t.column("execution_count", .integer).notNull().defaults(to: 1)
+            }
+
+            // Create index for timestamp-based queries (recent commands)
+            try db.create(index: "idx_command_history_executed_at", on: "command_history", columns: ["executed_at"])
+
+            // Create FTS5 virtual table for full-text search
+            try db.create(virtualTable: "command_history_fts", using: FTS5()) { t in
+                t.column("query")
+                t.content = "command_history"
+                t.contentRowID = "rowid"
+            }
+
+            // Create triggers to keep FTS5 in sync with command_history
+            try db.execute(sql: """
+                CREATE TRIGGER command_history_ai AFTER INSERT ON command_history BEGIN
+                    INSERT INTO command_history_fts(rowid, query) VALUES (new.rowid, new.query);
+                END;
+            """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER command_history_ad AFTER DELETE ON command_history BEGIN
+                    INSERT INTO command_history_fts(command_history_fts, rowid, query) VALUES('delete', old.rowid, old.query);
+                END;
+            """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER command_history_au AFTER UPDATE ON command_history BEGIN
+                    INSERT INTO command_history_fts(command_history_fts, rowid, query) VALUES('delete', old.rowid, old.query);
+                    INSERT INTO command_history_fts(rowid, query) VALUES (new.rowid, new.query);
+                END;
+            """)
+        }
+
         return migrator
     }
 
