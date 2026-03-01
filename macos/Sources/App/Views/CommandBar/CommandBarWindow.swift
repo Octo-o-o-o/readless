@@ -14,16 +14,13 @@ struct CommandBarWindow: View {
             Divider()
                 .padding(.horizontal)
 
-            // Results list placeholder (will implement in Task 4)
             ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(coordinator.commandResults) { result in
-                        Text(result.title)
-                            .padding()
-                    }
-                }
-                .padding()
+                CommandBarResultsList(
+                    results: coordinator.commandResults,
+                    selectedIndex: coordinator.selectedResultIndex
+                )
             }
+            .frame(maxHeight: 400)
         }
         .frame(width: 600)
         .frame(minHeight: 200, maxHeight: 500)
