@@ -206,15 +206,64 @@ class TestUserTagModel:
 
 
 # ---------------------------------------------------------------------------
+# ContentTag
+# ---------------------------------------------------------------------------
+
+class TestContentTagModel:
+    def test_tablename(self):
+        from app.models.content_tag import ContentTag
+        assert ContentTag.__tablename__ == "content_tags"
+
+    def test_required_columns(self):
+        from app.models.content_tag import ContentTag
+        cols = _column_names(ContentTag)
+        expected = {
+            "content_id",
+            "tag_id",
+            "user_id",
+            "created_at",
+        }
+        assert expected.issubset(cols), f"Missing columns: {expected - cols}"
+
+    def test_composite_primary_key(self):
+        from app.models.content_tag import ContentTag
+        mapper = inspect(ContentTag)
+        pk_cols = [col.key for col in mapper.columns if col.primary_key]
+        assert set(pk_cols) == {"content_id", "tag_id"}
+
+    def test_foreign_key_content_cascade(self):
+        from app.models.content_tag import ContentTag
+        col = ContentTag.__table__.c.content_id
+        fk = list(col.foreign_keys)[0]
+        assert fk.column.table.name == "contents"
+        assert fk.ondelete == "CASCADE"
+
+    def test_foreign_key_tag_cascade(self):
+        from app.models.content_tag import ContentTag
+        col = ContentTag.__table__.c.tag_id
+        fk = list(col.foreign_keys)[0]
+        assert fk.column.table.name == "user_tags"
+        assert fk.ondelete == "CASCADE"
+
+    def test_indexes_exist(self):
+        from app.models.content_tag import ContentTag
+        index_names = _table_indexes(ContentTag)
+        assert "idx_content_tags_tag_id" in index_names
+        assert "idx_content_tags_content_id" in index_names
+        assert "idx_content_tags_user_id" in index_names
+
+
+# ---------------------------------------------------------------------------
 # __init__.py re-exports
 # ---------------------------------------------------------------------------
 
 class TestModelsInit:
     def test_all_models_importable(self):
-        from app.models import Channel, Content, Paragraph, Podcast, UserTag
+        from app.models import Channel, Content, ContentTag, Paragraph, Podcast, UserTag
 
         assert Content.__tablename__ == "contents"
         assert Paragraph.__tablename__ == "paragraphs"
         assert Podcast.__tablename__ == "podcasts"
         assert Channel.__tablename__ == "channels"
         assert UserTag.__tablename__ == "user_tags"
+        assert ContentTag.__tablename__ == "content_tags"
