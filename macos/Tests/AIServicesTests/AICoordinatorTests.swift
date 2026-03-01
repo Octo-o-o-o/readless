@@ -19,4 +19,31 @@ final class AICoordinatorTests: XCTestCase {
 
         XCTAssertFalse(coordinator.isCommandBarVisible)
     }
+
+    @MainActor
+    func testSelectedResultIndexState() {
+        let coordinator = AICoordinator()
+        XCTAssertEqual(coordinator.selectedResultIndex, 0)
+
+        coordinator.selectedResultIndex = 2
+        XCTAssertEqual(coordinator.selectedResultIndex, 2)
+    }
+
+    @MainActor
+    func testLoadingState() {
+        let coordinator = AICoordinator()
+        XCTAssertFalse(coordinator.isLoading)
+
+        coordinator.isLoading = true
+        XCTAssertTrue(coordinator.isLoading)
+    }
+
+    @MainActor
+    func testErrorMessageState() {
+        let coordinator = AICoordinator()
+        XCTAssertNil(coordinator.errorMessage)
+
+        coordinator.errorMessage = "Test error"
+        XCTAssertEqual(coordinator.errorMessage, "Test error")
+    }
 }

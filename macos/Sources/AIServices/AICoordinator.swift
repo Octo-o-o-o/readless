@@ -10,6 +10,15 @@ public final class AICoordinator {
     public var commandResults: [CommandResult] = []
     public var selectedCommandIndex = 0
 
+    // Selection and UI state
+    public var selectedResultIndex: Int = 0
+    public var isLoading: Bool = false
+    public var errorMessage: String?
+
+    // Preview panel state (for Phase 2)
+    public var showPreviewPanel: Bool = false
+    public var previewContent: Content?
+
     // Semantic Search State
     public var searchQuery = ""
     public var searchResults: [SearchResult] = []
