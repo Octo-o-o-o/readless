@@ -51,22 +51,76 @@ public final class APIClient: @unchecked Sendable {
 
     // MARK: - Generic Request
 
-    private func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
+    private func request(_ path: String, method: String = "GET", body: Data? = nil, isRetry: Bool = false) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else {
+            print("[APIClient] ❌ Invalid URL: \(path) relative to \(baseURL)")
             throw APIError.invalidURL
         }
+
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
         if let token = authToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            print("[APIClient] 🔐 Request to \(url) with auth token (length: \(token.count))")
+        } else {
+            print("[APIClient] ⚠️ Request to \(url) WITHOUT auth token")
         }
+
         req.httpBody = body
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            throw APIError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0)
+
+        do {
+            let (data, response) = try await session.data(for: req)
+
+            guard let http = response as? HTTPURLResponse else {
+                print("[APIClient] ❌ Response is not HTTPURLResponse: \(response)")
+                throw APIError.serverError(0)
+            }
+
+            print("[APIClient] 📡 Response status: \(http.statusCode)")
+
+            guard 200..<300 ~= http.statusCode else {
+                print("[APIClient] ❌ Server error: \(http.statusCode)")
+
+                // Try to decode error message from response
+                if let errorMessage = String(data: data, encoding: .utf8) {
+                    print("[APIClient] Error response: \(errorMessage)")
+
+                    // Auto-refresh token on 401 if token expired
+                    if http.statusCode == 401 && errorMessage.contains("Token expired") && !isRetry {
+                        print("[APIClient] 🔄 Token expired, attempting refresh and retry...")
+
+                        // Import AuthManager to refresh token
+                        // Note: This creates a dependency cycle that should be resolved by using a protocol
+                        // For now, we'll add the refresh logic here
+                        do {
+                            // Try to refresh token via notification
+                            await MainActor.run {
+                                NotificationCenter.default.post(name: .refreshAuthToken, object: nil)
+                            }
+
+                            // Wait a bit for token refresh
+                            try await Task.sleep(for: .milliseconds(500))
+
+                            // Retry the request once
+                            return try await request(path, method: method, body: body, isRetry: true)
+                        } catch {
+                            print("[APIClient] ❌ Token refresh failed: \(error)")
+                        }
+                    }
+                }
+
+                throw APIError.serverError(http.statusCode)
+            }
+
+            return data
+        } catch let error as APIError {
+            throw error
+        } catch {
+            print("[APIClient] ❌ Network error: \(error.localizedDescription)")
+            throw APIError.networkError(error)
         }
-        return data
     }
 
     // MARK: - Content Endpoints
@@ -151,6 +205,51 @@ public final class APIClient: @unchecked Sendable {
         return try JSONDecoder.apiDecoder.decode(SearchResult.self, from: data)
     }
 
+    // MARK: - Tag Endpoints
+
+    /// Fetch user's tag library with content counts.
+    public func fetchUserTags() async throws -> [UserTag] {
+        let data = try await request("/api/v1/tags")
+        return try JSONDecoder.apiDecoder.decode([UserTag].self, from: data)
+    }
+
+    /// Create a new tag.
+    /// - Parameter name: The name of the tag to create
+    /// - Returns: The newly created tag
+    public func createTag(name: String) async throws -> UserTag {
+        struct Req: Encodable { let tag_name: String }
+        let payload = try JSONEncoder().encode(Req(tag_name: name))
+        let data = try await request("/api/v1/tags", method: "POST", body: payload)
+        return try JSONDecoder.apiDecoder.decode(UserTag.self, from: data)
+    }
+
+    /// Delete a tag (soft delete on backend).
+    /// - Parameter id: The tag ID to delete
+    public func deleteTag(id: Int) async throws {
+        _ = try await request("/api/v1/tags/\(id)", method: "DELETE")
+    }
+
+    /// Update tags for a content item.
+    /// Auto-creates tags that don't exist yet. Replaces all existing tags.
+    /// - Parameters:
+    ///   - contentId: The content ID to update
+    ///   - tags: Array of tag names to assign to the content
+    /// - Returns: The updated list of tags for the content
+    public func updateContentTags(contentId: String, tags: [String]) async throws -> [UserTag] {
+        struct Req: Encodable { let tag_names: [String] }
+        let payload = try JSONEncoder().encode(Req(tag_names: tags))
+        let data = try await request("/api/v1/tags/content/\(contentId)/tags", method: "PUT", body: payload)
+        return try JSONDecoder.apiDecoder.decode([UserTag].self, from: data)
+    }
+
+    /// Fetch content items by tag.
+    /// - Parameter tagId: The tag ID to filter by
+    /// - Returns: Array of content items with the specified tag
+    public func fetchContentsByTag(tagId: Int) async throws -> [Content] {
+        let data = try await request("/api/v1/tags/\(tagId)/contents")
+        return try JSONDecoder.apiDecoder.decode([Content].self, from: data)
+    }
+
     // MARK: - Health
 
     /// Perform a health check against the backend API.
@@ -192,6 +291,12 @@ public struct ParagraphResponse: Codable, Sendable {
         case anchorID = "anchor_id"
         case text, position
     }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    public static let refreshAuthToken = Notification.Name("refreshAuthToken")
 }
 
 // MARK: - JSON Decoder Extension
