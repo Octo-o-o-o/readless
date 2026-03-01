@@ -9,14 +9,10 @@ struct CommandBarWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Input field placeholder (will implement in Task 3)
-            TextField("Type to search or paste URL...", text: $query)
-                .textFieldStyle(.plain)
-                .font(.title2)
-                .padding()
-                .background(Color.clear)
+            CommandBarInputField(query: $query)
 
             Divider()
+                .padding(.horizontal)
 
             // Results list placeholder (will implement in Task 4)
             ScrollView {
