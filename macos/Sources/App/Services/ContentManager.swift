@@ -22,6 +22,8 @@ final class ContentManager {
     var processingContent: Content?
     var capsuleState: CapsuleState = .dismissed
     var showResultPanel: Bool = false
+    var isLoading: Bool = false
+    var error: Error?
 
     // MARK: - Private
 
@@ -90,6 +92,26 @@ final class ContentManager {
         } catch {
             // Silently handle errors for now; the UI will show an empty state.
         }
+    }
+
+    /// Filter content items by tag
+    func filterByTag(tagId: Int) async {
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let filteredContent = try await api.fetchContentsByTag(tagId: tagId)
+            contents = filteredContent
+            error = nil
+        } catch {
+            self.error = error
+            print("[ContentManager] Failed to filter by tag: \(error)")
+        }
+    }
+
+    /// Clear tag filter and show all content
+    func clearTagFilter() async {
+        await loadContents()
     }
 
     // MARK: - Notifications
