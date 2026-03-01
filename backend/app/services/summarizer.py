@@ -217,12 +217,16 @@ class SummarizationService:
         # 1. Fetch user's tag library
         from app.models.user_tag import UserTag
 
-        stmt = select(UserTag.tag_name).where(
-            UserTag.user_id == user_id,
-            UserTag.deleted_at.is_(None),
-        )
-        result = await db.execute(stmt)
-        available_tags = [row[0] for row in result.all()]
+        try:
+            stmt = select(UserTag.tag_name).where(
+                UserTag.user_id == user_id,
+                UserTag.deleted_at.is_(None),
+            )
+            result = await db.execute(stmt)
+            available_tags = [row[0] for row in result.all()]
+        except Exception:
+            # Fallback to empty tag library on database error
+            available_tags = []
 
         # 2. Build tag instruction based on user's library
         if available_tags:
@@ -260,6 +264,7 @@ Return ONLY the JSON object. No markdown, no code blocks."""
                 {"role": "user", "content": user_message},
             ],
             temperature=0.3,
+            max_tokens=2000,
         )
 
         # 6. Parse response
@@ -274,6 +279,13 @@ Return ONLY the JSON object. No markdown, no code blocks."""
             data = json.loads(cleaned)
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse AI response as JSON: {cleaned}") from e
+
+        # 7. Validate tags are from user's library
+        if available_tags and data.get("tags"):
+            invalid_tags = [tag for tag in data["tags"] if tag not in available_tags]
+            if invalid_tags:
+                # Filter out invalid tags
+                data["tags"] = [tag for tag in data["tags"] if tag in available_tags]
 
         return ContentSummary(
             l0_summary=data["l0_summary"],

@@ -289,3 +289,87 @@ async def test_generate_summary_with_no_user_tags(db_session):
         assert (
             "Empty array" in system_message or "no tags" in system_message.lower()
         )
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_filters_invalid_tags(db_session):
+    """Test that invalid tags returned by AI are filtered out."""
+    from app.services.summarizer import _get_summarizer
+    from app.models.user_tag import UserTag
+    from unittest.mock import AsyncMock, patch
+
+    # Create user tags
+    tag1 = UserTag(user_id="test_user", tag_name="技术")
+    tag2 = UserTag(user_id="test_user", tag_name="学习")
+    db_session.add_all([tag1, tag2])
+    await db_session.commit()
+
+    # Mock OpenAI to return invalid tag
+    mock_response = {
+        "l0_summary": "Test summary",
+        "l1_outline": [{"point": "Point 1", "anchors": ["¶1"]}],
+        "tags": ["技术", "编程"],  # "编程" is NOT in user's library!
+        "keywords": ["test"],
+    }
+
+    with patch("app.services.summarizer.openai") as mock_openai:
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MockResponse(mock_response)
+        )
+        mock_openai.AsyncOpenAI.return_value = mock_client
+
+        summarizer = _get_summarizer()
+        result = await summarizer.generate_summary(
+            full_text="Test content",
+            paragraphs=["Paragraph 1"],
+            user_id="test_user",
+            db=db_session,
+        )
+
+        # Should filter out "编程", keep only "技术"
+        assert result.tags == ["技术"]
+        assert "编程" not in result.tags
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_handles_db_error(db_session):
+    """Test that summarization continues when tag fetch fails."""
+    from app.services.summarizer import _get_summarizer
+    from unittest.mock import AsyncMock, patch, MagicMock
+
+    mock_response = {
+        "l0_summary": "Test summary",
+        "l1_outline": [{"point": "Point 1", "anchors": ["¶1"]}],
+        "tags": [],
+        "keywords": ["test"],
+    }
+
+    # Mock database to raise error
+    db_mock = MagicMock()
+    db_mock.execute = AsyncMock(side_effect=Exception("Database connection failed"))
+
+    with patch("app.services.summarizer.openai") as mock_openai:
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MockResponse(mock_response)
+        )
+        mock_openai.AsyncOpenAI.return_value = mock_client
+
+        summarizer = _get_summarizer()
+        result = await summarizer.generate_summary(
+            full_text="Test content",
+            paragraphs=["Paragraph 1"],
+            user_id="test_user",
+            db=db_mock,
+        )
+
+        # Should complete successfully with empty tags
+        assert result.tags == []
+        assert result.l0_summary == "Test summary"
+
+        # Verify prompt mentioned empty tag library
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        system_message = messages[0]["content"]
+        assert "Empty array" in system_message or "no tags" in system_message.lower()
