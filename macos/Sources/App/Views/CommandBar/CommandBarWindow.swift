@@ -22,6 +22,29 @@ struct CommandBarWindow: View {
             }
             .frame(maxHeight: 400)
         }
+        .onKeyPress(.upArrow) {
+            coordinator.selectPreviousResult()
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            coordinator.selectNextResult()
+            return .handled
+        }
+        .onKeyPress(.return) {
+            Task {
+                await coordinator.executeSelectedResult()
+            }
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            coordinator.hideCommandBar()
+            return .handled
+        }
+        .onChange(of: coordinator.isCommandBarVisible) { oldValue, newValue in
+            if newValue {
+                coordinator.resetSelection()
+            }
+        }
         .frame(width: 600)
         .frame(minHeight: 200, maxHeight: 500)
         .background(.ultraThinMaterial)

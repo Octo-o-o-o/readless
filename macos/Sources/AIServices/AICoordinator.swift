@@ -45,6 +45,30 @@ public final class AICoordinator {
     }
 
     @MainActor
+    public func selectNextResult() {
+        guard !commandResults.isEmpty else { return }
+        selectedResultIndex = min(selectedResultIndex + 1, commandResults.count - 1)
+    }
+
+    @MainActor
+    public func selectPreviousResult() {
+        selectedResultIndex = max(selectedResultIndex - 1, 0)
+    }
+
+    @MainActor
+    public func executeSelectedResult() async {
+        guard selectedResultIndex < commandResults.count else { return }
+        let result = commandResults[selectedResultIndex]
+        await result.action()
+        hideCommandBar()
+    }
+
+    @MainActor
+    public func resetSelection() {
+        selectedResultIndex = 0
+    }
+
+    @MainActor
     public func searchCommands(_ query: String) async {
         commandQuery = query
         // Will be implemented with CommandBarService
