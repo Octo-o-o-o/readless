@@ -36,6 +36,7 @@ public struct Content: Identifiable, Codable, Sendable {
     public var tags: [String]
     public var status: ContentStatus
     public let createdAt: Date
+    public var updatedAt: Date
     public var podcastURL: String?
 
     // Explicit CodingKeys because .convertFromSnakeCase maps
@@ -51,6 +52,7 @@ public struct Content: Identifiable, Codable, Sendable {
         case l1Outline = "l1_outline"
         case tags, status
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
         case podcastURL = "podcast_url"
     }
 
@@ -66,6 +68,7 @@ public struct Content: Identifiable, Codable, Sendable {
         tags: [String] = [],
         status: ContentStatus = .pending,
         createdAt: Date = Date(),
+        updatedAt: Date = Date(),
         podcastURL: String? = nil
     ) {
         self.id = id
@@ -79,6 +82,7 @@ public struct Content: Identifiable, Codable, Sendable {
         self.tags = tags
         self.status = status
         self.createdAt = createdAt
+        self.updatedAt = updatedAt
         self.podcastURL = podcastURL
     }
 }

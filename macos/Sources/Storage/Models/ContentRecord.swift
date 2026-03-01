@@ -73,7 +73,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         self.tagsData = try? JSONEncoder().encode(content.tags)
         self.status = content.status.rawValue
         self.createdAt = content.createdAt
-        self.updatedAt = Date()
+        self.updatedAt = content.updatedAt
         self.syncedAt = nil
         self.isFavorite = false
         self.podcastURL = content.podcastURL
@@ -102,6 +102,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
             tags: tags,
             status: ContentStatus(rawValue: status) ?? .pending,
             createdAt: createdAt,
+            updatedAt: updatedAt,
             podcastURL: podcastURL
         )
     }

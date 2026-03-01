@@ -4,6 +4,7 @@ import Core
 
 // MARK: - Database Manager
 
+@available(*, deprecated, message: "Use LocalDatabase instead. This class will be removed in a future version.")
 public final class DatabaseManager {
     public static let shared = DatabaseManager()
 
