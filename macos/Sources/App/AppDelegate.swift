@@ -3,6 +3,7 @@ import Core
 
 // MARK: - App Delegate
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var hotkeyService: HotkeyService?
     var folderWatchService: FolderWatchService?
@@ -17,27 +18,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
-        // MARK: Hotkey Service
-
-        hotkeyService = HotkeyService(
-            onSilentImport: { text, appName, bundleID in
-                Task { @MainActor in
-                    await ContentManager.shared.importSilently(
-                        text: text, appName: appName, bundleID: bundleID
-                    )
+        // Defer hotkey setup one run-loop turn so the process is fully
+        // registered as a foreground app before creating the CGEventTap.
+        DispatchQueue.main.async { [self] in
+            hotkeyService = HotkeyService(
+                onSilentImport: { text, appName, bundleID in
+                    Task { @MainActor in
+                        await ContentManager.shared.importSilently(
+                            text: text, appName: appName, bundleID: bundleID
+                        )
+                    }
+                },
+                onImportAndDisplay: { text, appName, bundleID in
+                    Task { @MainActor in
+                        await ContentManager.shared.importAndDisplay(
+                            text: text, appName: appName, bundleID: bundleID
+                        )
+                    }
+                },
+                onSummon: {
+                    NotificationCenter.default.post(name: .showSummonPanel, object: nil)
+                },
+                onCommandBar: {
+                    NotificationCenter.default.post(name: .toggleCommandBar, object: nil)
                 }
-            },
-            onImportAndDisplay: { text, appName, bundleID in
-                Task { @MainActor in
-                    await ContentManager.shared.importAndDisplay(
-                        text: text, appName: appName, bundleID: bundleID
-                    )
-                }
-            },
-            onSummon: {
-                NotificationCenter.default.post(name: .showSummonPanel, object: nil)
-            }
-        )
+            )
+        }
 
         // MARK: Folder Watch Service
 
@@ -114,4 +120,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let showSummonPanel = Notification.Name("showSummonPanel")
+    static let toggleCommandBar = Notification.Name("toggleCommandBar")
 }
