@@ -3,15 +3,33 @@ import Core
 import Networking
 import Storage
 import UI
+import AIServices
 import KeyboardShortcuts
 
 @main
 struct ReadlessApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var aiCoordinator = AICoordinator()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(aiCoordinator)
+                .overlay {
+                    if aiCoordinator.isCommandBarVisible {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                aiCoordinator.hideCommandBar()
+                            }
+
+                        CommandBarWindow()
+                            .environment(aiCoordinator)
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .toggleCommandBar)) { _ in
+                    aiCoordinator.isCommandBarVisible.toggle()
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 800, height: 600)
