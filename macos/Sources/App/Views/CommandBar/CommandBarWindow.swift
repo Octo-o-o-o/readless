@@ -8,19 +8,31 @@ struct CommandBarWindow: View {
     @State private var query: String = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            CommandBarInputField(query: $query)
+        HStack(spacing: 0) {
+            // Main panel
+            VStack(spacing: 0) {
+                CommandBarInputField(query: $query)
 
-            Divider()
-                .padding(.horizontal)
+                Divider()
+                    .padding(.horizontal)
 
-            ScrollView {
-                CommandBarResultsList(
-                    results: coordinator.commandResults,
-                    selectedIndex: coordinator.selectedResultIndex
-                )
+                ScrollView {
+                    CommandBarResultsList(
+                        results: coordinator.commandResults,
+                        selectedIndex: coordinator.selectedResultIndex
+                    )
+                }
+                .frame(maxHeight: 400)
             }
-            .frame(maxHeight: 400)
+            .frame(width: 600)
+
+            // Preview panel (shows on Tab or when content selected)
+            if coordinator.showPreviewPanel {
+                Divider()
+
+                CommandBarPreviewPanel(content: coordinator.previewContent)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
         .onKeyPress(.upArrow) {
             coordinator.selectPreviousResult()
@@ -40,12 +52,15 @@ struct CommandBarWindow: View {
             coordinator.hideCommandBar()
             return .handled
         }
+        .onKeyPress(.tab) {
+            coordinator.showPreviewPanel.toggle()
+            return .handled
+        }
         .onChange(of: coordinator.isCommandBarVisible) { oldValue, newValue in
             if newValue {
                 coordinator.resetSelection()
             }
         }
-        .frame(width: 600)
         .frame(minHeight: 200, maxHeight: 500)
         .background(.ultraThinMaterial)
         .cornerRadius(16)
@@ -53,6 +68,7 @@ struct CommandBarWindow: View {
         .opacity(coordinator.isCommandBarVisible ? 1 : 0)
         .scaleEffect(coordinator.isCommandBarVisible ? 1.0 : 0.9)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.isCommandBarVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.showPreviewPanel)
     }
 }
 
