@@ -70,6 +70,7 @@ struct ReadlessApp: App {
 
 struct ContentView: View {
     @State private var contentManager = ContentManager.shared
+    @Environment(TagManager.self) private var tagManager
     @State private var selectedSection: SidebarSection? = .allItems
     @State private var selectedContentID: String?
 
@@ -93,6 +94,10 @@ struct ContentView: View {
         }
         .task {
             await contentManager.loadContents()
+        }
+        .onChange(of: selectedSection) { oldValue, newValue in
+            // Clear tag filter when selecting a sidebar section
+            tagManager.clearSelection()
         }
         .onChange(of: contentManager.showResultPanel) { oldValue, newValue in
             // When showResultPanel becomes true, auto-select the newly processed content
@@ -201,6 +206,8 @@ struct SidebarView: View {
     @Binding var selection: SidebarSection?
     @Environment(\.openSettings) private var openSettings
     @Environment(Clerk.self) private var clerk
+    @Environment(TagManager.self) private var tagManager
+    @State private var contentManager = ContentManager.shared
     @State private var showAuthSheet = false
     @State private var showSignOutConfirm = false
 
@@ -222,9 +229,48 @@ struct SidebarView: View {
                         Label(section.title, systemImage: section.systemImage)
                             .tag(section)
                     }
+
+                    // Add tag filtering
+                    if !tagManager.userTags.isEmpty {
+                        Divider()
+
+                        ForEach(tagManager.userTags) { tag in
+                            Button {
+                                // Clear sidebar selection when filtering by tag
+                                selection = nil
+                                tagManager.selectTag(tag.id)
+                                Task {
+                                    await contentManager.filterByTag(tagId: tag.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Label(tag.tagName, systemImage: "tag")
+                                    Spacer()
+                                    Text("\(tag.contentCount)")
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Delete Tag", role: .destructive) {
+                                    Task {
+                                        try? await tagManager.deleteTag(id: tag.id)
+                                        // Reload content if this tag was selected
+                                        if tagManager.selectedTagId == tag.id {
+                                            await contentManager.loadContents()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .listStyle(.sidebar)
+            .task {
+                await tagManager.loadUserTags()
+            }
 
             Divider()
 
