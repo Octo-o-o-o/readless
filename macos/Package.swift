@@ -102,7 +102,7 @@ let package = Package(
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ],
             path: "Sources/App",
-            exclude: ["Resources"],
+            exclude: ["Resources", "Services/README_SuggestionEngine.md"],
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",

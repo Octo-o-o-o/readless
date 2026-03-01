@@ -17,10 +17,25 @@ final class ReaderViewModel {
     var isLoadingExpand: Bool = false
     var isLoadingFollowUp: Bool = false
 
+    // Translation state
+    var translatedContent: Content?
+    var showingTranslation: Bool = false
+    var isLoadingTranslation: Bool = false
+
     private let api: APIClient
 
     init(api: APIClient? = nil) {
         self.api = api ?? .shared
+    }
+
+    /// Whether a translation is available
+    var hasTranslation: Bool {
+        translatedContent != nil
+    }
+
+    /// The content currently being displayed (original or translated)
+    var displayedContent: Content? {
+        showingTranslation ? translatedContent : content
     }
 
     // MARK: - Data Loading
@@ -30,6 +45,11 @@ final class ReaderViewModel {
         expandedDetails = [:]
         focusedIndex = 0
         followUpAnswer = nil
+
+        // Reset translation state
+        translatedContent = nil
+        showingTranslation = false
+        isLoadingTranslation = false
 
         do {
             content = try await api.getContent(id: contentID)
@@ -97,10 +117,41 @@ final class ReaderViewModel {
         }
     }
 
+    // MARK: - Translation
+
+    func loadTranslation(targetLanguage: String) async {
+        guard let content else { return }
+        guard let sourceLanguage = content.sourceLanguage else { return }
+
+        // Smart translation: skip if same language
+        guard sourceLanguage != targetLanguage else {
+            showingTranslation = false
+            return
+        }
+
+        isLoadingTranslation = true
+        defer { isLoadingTranslation = false }
+
+        do {
+            translatedContent = try await api.translateContent(
+                contentID: content.id,
+                targetLanguage: targetLanguage
+            )
+            showingTranslation = true
+        } catch {
+            // Translation failed, keep showing original
+            showingTranslation = false
+        }
+    }
+
+    func toggleTranslation(show: Bool) {
+        showingTranslation = show && hasTranslation
+    }
+
     // MARK: - Keyboard Navigation
 
     func moveDown() {
-        guard let outline = content?.l1Outline else { return }
+        guard let outline = displayedContent?.l1Outline else { return }
         if focusedIndex < outline.count - 1 {
             focusedIndex += 1
         }

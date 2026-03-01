@@ -66,7 +66,7 @@ extension UnifiedAIProvider {
         model: String = "gpt-4o"
     ) async throws -> String {
         // Convert image to base64
-        let base64 = imageData.base64EncodedString()
+        let _ = imageData.base64EncodedString()
 
         // For now, stub implementation
         // TODO: Implement with OpenAI vision API

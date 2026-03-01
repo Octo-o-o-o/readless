@@ -45,6 +45,11 @@ class Content(Base):
         ARRAY(String), nullable=True
     )
 
+    # Language
+    source_language: Mapped[str | None] = mapped_column(
+        String(10), nullable=True
+    )
+
     # Full text & search
     full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     full_text_tsv: Mapped[str | None] = mapped_column(

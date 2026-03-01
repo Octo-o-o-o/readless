@@ -6,6 +6,7 @@ from app.models.channel import Channel
 from app.models.content import Content
 from app.models.paragraph import Paragraph
 from app.models.podcast import Podcast
+from app.models.user_tag import UserTag
 
 
 def _column_names(model):
@@ -171,14 +172,49 @@ class TestChannelModel:
 
 
 # ---------------------------------------------------------------------------
+# UserTag
+# ---------------------------------------------------------------------------
+
+class TestUserTagModel:
+    def test_tablename(self):
+        assert UserTag.__tablename__ == "user_tags"
+
+    def test_required_columns(self):
+        cols = _column_names(UserTag)
+        expected = {
+            "id",
+            "user_id",
+            "tag_name",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        }
+        assert expected.issubset(cols), f"Missing columns: {expected - cols}"
+
+    def test_primary_key_autoincrement(self):
+        mapper = inspect(UserTag)
+        pk_cols = [col for col in mapper.columns if col.primary_key]
+        assert len(pk_cols) == 1
+        assert pk_cols[0].key == "id"
+        assert pk_cols[0].autoincrement is True or pk_cols[0].autoincrement == "auto"
+
+    def test_indexes_exist(self):
+        index_names = _table_indexes(UserTag)
+        assert "idx_user_tags_user_id" in index_names
+        assert "idx_user_tags_deleted_at" in index_names
+        assert "uq_user_tags_user_tag" in index_names
+
+
+# ---------------------------------------------------------------------------
 # __init__.py re-exports
 # ---------------------------------------------------------------------------
 
 class TestModelsInit:
     def test_all_models_importable(self):
-        from app.models import Channel, Content, Paragraph, Podcast
+        from app.models import Channel, Content, Paragraph, Podcast, UserTag
 
         assert Content.__tablename__ == "contents"
         assert Paragraph.__tablename__ == "paragraphs"
         assert Podcast.__tablename__ == "podcasts"
         assert Channel.__tablename__ == "channels"
+        assert UserTag.__tablename__ == "user_tags"

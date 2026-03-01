@@ -16,9 +16,11 @@ from app.schemas.content import (
     TextResponse,
 )
 from app.schemas.summary import OutlinePoint
+from app.schemas.summary import ContentSummary
 from app.services.extractor import ExtractedContent, ExtractedParagraph
 from app.services.pipeline import ProcessingPipeline
 from app.services.summarizer import SummarizationService
+from app.services.translator import _get_service as get_translator
 
 router = APIRouter(prefix="/api/v1/content", tags=["content"])
 
@@ -177,6 +179,65 @@ async def ask_followup(
     return TextResponse(text=answer)
 
 
+@router.post("/{content_id}/translate", response_model=ContentResponse)
+async def translate_content(
+    content_id: str,
+    target_language: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Translate content summaries to target language.
+
+    Args:
+        content_id: Content ID to translate
+        target_language: Target language ISO code (en, zh, ja, etc.)
+
+    Returns:
+        ContentResponse with translated L0 summary and L1 outline
+    """
+    content = await db.get(Content, content_id)
+    if not content or content.user_id != user_id:
+        raise HTTPException(404, "Content not found")
+
+    # Check if we have summaries to translate
+    if not content.l0_summary or not content.l1_outline:
+        raise HTTPException(400, "Content has no summaries to translate")
+
+    # Build current summary from content
+    current_summary = ContentSummary(
+        l0_summary=content.l0_summary,
+        l1_outline=[OutlinePoint(**item) for item in content.l1_outline],
+        tags=content.tags or [],
+        keywords=content.keywords or [],
+    )
+
+    # Translate summary
+    translator = get_translator()
+    translated_summary = await translator.translate_summary(
+        summary=current_summary,
+        target_lang=target_language,
+        source_lang=content.source_language,
+    )
+
+    # Return translated content response (don't modify DB)
+    return ContentResponse(
+        id=content.id,
+        title=content.title,
+        source_url=content.source_url,
+        source_type=content.source_type,
+        source_app_name=content.source_app_name,
+        source_app_bundle_id=content.source_app_bundle_id,
+        source_language=content.source_language,  # Keep original language
+        l0_summary=translated_summary.l0_summary,
+        l1_outline=[p.model_dump() for p in translated_summary.l1_outline],
+        tags=content.tags,
+        status=content.status,
+        created_at=content.created_at,
+        updated_at=content.updated_at,
+    )
+
+
 def _to_response(c: Content) -> ContentResponse:
     """Convert a Content ORM instance to a ContentResponse."""
     return ContentResponse(
@@ -185,9 +246,12 @@ def _to_response(c: Content) -> ContentResponse:
         source_url=c.source_url,
         source_type=c.source_type,
         source_app_name=c.source_app_name,
+        source_app_bundle_id=c.source_app_bundle_id,
+        source_language=c.source_language,
         l0_summary=c.l0_summary,
         l1_outline=c.l1_outline,
         tags=c.tags,
         status=c.status,
         created_at=c.created_at,
+        updated_at=c.updated_at,
     )

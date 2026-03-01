@@ -97,8 +97,13 @@ class SummarizationService:
     #  L0 + L1: Summarize
     # ------------------------------------------------------------------ #
 
-    async def summarize(self, content: ExtractedContent) -> ContentSummary:
-        """Generate an L0 one-line summary and L1 structured outline."""
+    async def summarize(self, content: ExtractedContent) -> tuple[ContentSummary, str]:
+        """
+        Generate an L0 one-line summary and L1 structured outline.
+
+        Returns:
+            A tuple of (ContentSummary, detected_language_code)
+        """
         annotated_text = self._build_annotated_text(content)
 
         message = await self.client.chat.completions.create(
@@ -121,7 +126,7 @@ class SummarizationService:
         cleaned = self._strip_code_fences(raw_text)
         data = json.loads(cleaned)
 
-        return ContentSummary(
+        summary = ContentSummary(
             l0_summary=data["l0_summary"],
             l1_outline=[
                 OutlinePoint(point=item["point"], anchors=item["anchors"])
@@ -130,6 +135,14 @@ class SummarizationService:
             tags=data["tags"],
             keywords=data["keywords"],
         )
+
+        # Detect language from L0 summary
+        from app.services.translator import _get_service
+        translator = _get_service()
+        detected_language = await translator.detect_language(summary.l0_summary)
+        logger.info("Detected content language: %s", detected_language)
+
+        return summary, detected_language
 
     # ------------------------------------------------------------------ #
     #  L2: Expand a specific outline point

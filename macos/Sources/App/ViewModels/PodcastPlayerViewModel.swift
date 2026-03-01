@@ -13,8 +13,8 @@ final class PodcastPlayerViewModel: NSObject {
     var currentChapterIndex: Int = 0
     var chapters: [(title: String, outlinePointIndex: Int?)] = []
 
-    nonisolated(unsafe) private var player: AVPlayer?
-    nonisolated(unsafe) private var timeObserver: Any?  // nonisolated(unsafe) needed for deinit access
+    @ObservationIgnored private var player: AVPlayer?
+    @ObservationIgnored private var timeObserver: Any?
 
     // MARK: - Loading
 

@@ -130,6 +130,19 @@ public final class APIClient: @unchecked Sendable {
         return try JSONDecoder().decode(Resp.self, from: data).text
     }
 
+    /// Translate content summaries to a target language.
+    /// - Parameters:
+    ///   - contentID: The content ID to translate
+    ///   - targetLanguage: ISO 639-1 language code (e.g., "en", "zh", "ja")
+    /// - Returns: Content with translated L0 summary and L1 outline
+    public func translateContent(contentID: String, targetLanguage: String) async throws -> Content {
+        let data = try await request(
+            "/api/v1/content/\(contentID)/translate?target_language=\(targetLanguage)",
+            method: "POST"
+        )
+        return try JSONDecoder.apiDecoder.decode(Content.self, from: data)
+    }
+
     /// Search across all content using a natural-language query.
     public func search(query: String) async throws -> SearchResult {
         struct Req: Encodable { let query: String }

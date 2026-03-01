@@ -94,9 +94,12 @@ final class HotkeyService {
     /// Returns `true` if the event matches one of our hotkeys and the action
     /// was dispatched.
     private func matchAndDispatch(_ event: NSEvent) -> Bool {
-        // Require Option + Shift, nothing else.
+        // Require Option + Shift to be present
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard mods == [.option, .shift] else { return false }
+        guard mods.contains(.option) && mods.contains(.shift) else { return false }
+
+        // Reject if Command or Control are also pressed (to avoid conflicts)
+        guard !mods.contains(.command) && !mods.contains(.control) else { return false }
 
         switch event.keyCode {
         case 15:  // R — silent import

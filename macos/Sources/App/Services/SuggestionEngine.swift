@@ -63,8 +63,12 @@ final class SuggestionEngine {
 
     // MARK: - Initialization
 
-    init(contentManager: ContentManager = .shared) {
+    init(contentManager: ContentManager) {
         self.contentManager = contentManager
+    }
+
+    convenience init() {
+        self.init(contentManager: .shared)
     }
 
     // MARK: - Public API

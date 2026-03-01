@@ -38,7 +38,7 @@ struct ContentListView: View {
 
                     Spacer()
 
-                    Text(content.createdAt, style: .relative)
+                    Text(content.createdAt.relativeFormatted())
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }

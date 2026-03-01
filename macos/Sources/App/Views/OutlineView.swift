@@ -48,6 +48,8 @@ struct OutlinePointRow: View {
     let onExpand: () -> Void
     let onTrace: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
@@ -66,11 +68,27 @@ struct OutlinePointRow: View {
                     // Anchor citations (e.g. [P1], [P2])
                     if !point.anchors.isEmpty {
                         HStack(spacing: 4) {
+                            Text("Source: ")
+                                .font(Theme.citationFont)
+                                .foregroundStyle(.tertiary)
+
                             ForEach(point.anchors, id: \.self) { anchor in
-                                Button(anchor) { onTrace() }
-                                    .font(Theme.citationFont)
-                                    .foregroundStyle(Theme.citationColor)
-                                    .buttonStyle(.plain)
+                                Button {
+                                    onTrace()
+                                } label: {
+                                    Text(anchor)
+                                        .font(Theme.citationFont)
+                                        .foregroundStyle(Theme.citationColor)
+                                        .underline()
+                                }
+                                .buttonStyle(.plain)
+                                .onHover { hovering in
+                                    if hovering {
+                                        NSCursor.pointingHand.push()
+                                    } else {
+                                        NSCursor.pop()
+                                    }
+                                }
                             }
                         }
                     }
@@ -80,7 +98,9 @@ struct OutlinePointRow: View {
 
                 // Expand/collapse chevron
                 Image(systemName: expandedDetail != nil ? "chevron.down" : "chevron.right")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(isHovering ? .primary : .tertiary)
+                    .imageScale(.small)
+                    .animation(Theme.snapAnimation, value: expandedDetail != nil)
             }
 
             // L2 expanded detail
@@ -100,9 +120,32 @@ struct OutlinePointRow: View {
         .padding(.horizontal, 12)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isFocused ? Color.primary.opacity(0.05) : .clear)
+                .fill(
+                    isFocused
+                        ? Color.primary.opacity(0.08)
+                        : isHovering
+                            ? Color.primary.opacity(0.04)
+                            : .clear
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(
+                    isHovering ? Color.primary.opacity(0.1) : .clear,
+                    lineWidth: 1
+                )
         )
         .contentShape(Rectangle())
         .onTapGesture { onExpand() }
+        .onHover { hovering in
+            withAnimation(Theme.snapAnimation) {
+                isHovering = hovering
+            }
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 }

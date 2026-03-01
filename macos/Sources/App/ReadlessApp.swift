@@ -73,6 +73,16 @@ struct ContentView: View {
         .task {
             await contentManager.loadContents()
         }
+        .onChange(of: contentManager.showResultPanel) { oldValue, newValue in
+            // When showResultPanel becomes true, auto-select the newly processed content
+            if newValue, let content = contentManager.processingContent {
+                selectedContentID = content.id
+                contentManager.showResultPanel = false
+
+                // Activate app to foreground
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
     }
 
     // MARK: - Filtered Contents
@@ -168,26 +178,54 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 
 struct SidebarView: View {
     @Binding var selection: SidebarSection?
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        List(selection: $selection) {
-            Section("Library") {
-                ForEach(SidebarSection.libraryItems) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .tag(section)
+        VStack(spacing: 0) {
+            // Main sidebar list
+            List(selection: $selection) {
+                Section("Library") {
+                    ForEach(SidebarSection.libraryItems) { section in
+                        Label(section.title, systemImage: section.systemImage)
+                            .tag(section)
+                    }
+                }
+
+                Divider()
+
+                Section("Knowledge") {
+                    ForEach(SidebarSection.knowledgeItems) { section in
+                        Label(section.title, systemImage: section.systemImage)
+                            .tag(section)
+                    }
                 }
             }
+            .listStyle(.sidebar)
 
             Divider()
 
-            Section("Knowledge") {
-                ForEach(SidebarSection.knowledgeItems) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .tag(section)
+            // Bottom toolbar with settings and account
+            HStack(spacing: 16) {
+                Button(action: { openSettings() }) {
+                    Label("Settings", systemImage: "gear")
+                        .labelStyle(.iconOnly)
                 }
+                .buttonStyle(.plain)
+                .help("Settings")
+
+                Spacer()
+
+                Button(action: { /* TODO: Account/Login */ }) {
+                    Label("Account", systemImage: "person.circle")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.plain)
+                .help("Account")
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .controlBackgroundColor))
         }
-        .listStyle(.sidebar)
         .navigationTitle("Readless")
     }
 }
@@ -211,10 +249,39 @@ struct SettingsView: View {
 }
 
 struct GeneralSettingsView: View {
+    @AppStorage("targetLanguage") private var targetLanguage = "auto"
+    @AppStorage("autoTranslateFullText") private var autoTranslateFullText = false
+
     var body: some View {
         Form {
-            Text("General settings placeholder")
+            Section("Language Settings") {
+                Picker("Summary Language:", selection: $targetLanguage) {
+                    Text("Follow content language").tag("auto")
+                    Divider()
+                    Text("English").tag("en")
+                    Text("中文 (Chinese)").tag("zh")
+                    Text("日本語 (Japanese)").tag("ja")
+                    Text("Español (Spanish)").tag("es")
+                    Text("Français (French)").tag("fr")
+                    Text("Deutsch (German)").tag("de")
+                    Text("한국어 (Korean)").tag("ko")
+                }
+                .pickerStyle(.menu)
+
+                if targetLanguage != "auto" {
+                    Toggle("Auto-translate full text", isOn: $autoTranslateFullText)
+                        .help("When enabled, automatically translate source paragraphs")
+                }
+            }
+
+            Section {
+                Text("Readless uses AI to generate multi-level summaries of long-form content. Choose your preferred language for summaries, or follow the source content's language.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .formStyle(.grouped)
+        .frame(width: 500)
     }
 }
 

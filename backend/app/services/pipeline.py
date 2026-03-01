@@ -52,7 +52,7 @@ class ProcessingPipeline:
             raise ValueError(f"Unsupported source_type: {source_type}")
 
         # Step 2: AI Summarize
-        summary = await self.summarizer.summarize(extracted)
+        summary, detected_language = await self.summarizer.summarize(extracted)
 
         # Step 3: Store in DB
         content = Content(
@@ -63,6 +63,7 @@ class ProcessingPipeline:
             source_app_name=source_app_name,
             source_app_bundle_id=source_app_bundle_id,
             channel=channel,
+            source_language=detected_language,
             l0_summary=summary.l0_summary,
             l1_outline=[p.model_dump() for p in summary.l1_outline],
             tags=summary.tags,

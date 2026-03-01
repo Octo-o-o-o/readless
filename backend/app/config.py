@@ -36,5 +36,8 @@ class Settings(BaseSettings):
     # --- CORS ---
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # --- Development ---
+    disable_auth: bool = False  # Set to True to disable Clerk authentication (dev only)
+
 
 settings = Settings()

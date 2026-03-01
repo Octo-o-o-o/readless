@@ -31,6 +31,7 @@ public struct Content: Identifiable, Codable, Sendable {
     public var sourceType: SourceType
     public var sourceAppName: String?
     public var sourceAppBundleID: String?
+    public var sourceLanguage: String?
     public var l0Summary: String?
     public var l1Outline: [OutlinePoint]?
     public var tags: [String]
@@ -48,6 +49,7 @@ public struct Content: Identifiable, Codable, Sendable {
         case sourceType = "source_type"
         case sourceAppName = "source_app_name"
         case sourceAppBundleID = "source_app_bundle_id"
+        case sourceLanguage = "source_language"
         case l0Summary = "l0_summary"
         case l1Outline = "l1_outline"
         case tags, status
@@ -63,6 +65,7 @@ public struct Content: Identifiable, Codable, Sendable {
         sourceType: SourceType,
         sourceAppName: String? = nil,
         sourceAppBundleID: String? = nil,
+        sourceLanguage: String? = nil,
         l0Summary: String? = nil,
         l1Outline: [OutlinePoint]? = nil,
         tags: [String] = [],
@@ -77,6 +80,7 @@ public struct Content: Identifiable, Codable, Sendable {
         self.sourceType = sourceType
         self.sourceAppName = sourceAppName
         self.sourceAppBundleID = sourceAppBundleID
+        self.sourceLanguage = sourceLanguage
         self.l0Summary = l0Summary
         self.l1Outline = l1Outline
         self.tags = tags

@@ -23,11 +23,14 @@ class ContentResponse(BaseModel):
     source_url: str | None
     source_type: str
     source_app_name: str | None
+    source_app_bundle_id: str | None = None
+    source_language: str | None = None
     l0_summary: str | None
     l1_outline: list[dict] | None
     tags: list[str] | None
     status: str
     created_at: datetime
+    updated_at: datetime
     podcast_url: str | None = None
 
 

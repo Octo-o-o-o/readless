@@ -15,7 +15,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config import settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 # Cached JWKS to avoid fetching on every request.
 _jwks_cache: dict | None = None
@@ -52,9 +52,16 @@ async def _get_jwks() -> dict:
 
 
 async def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Security(security),
+    credentials: HTTPAuthorizationCredentials | None = Security(security),
 ) -> str:
     """Verify Clerk JWT locally and return user ID (sub claim)."""
+    # Development mode: bypass authentication
+    if settings.disable_auth:
+        return "dev-user"
+
+    if credentials is None:
+        raise HTTPException(401, "Missing authorization header")
+
     token = credentials.credentials
     try:
         jwks = await _get_jwks()

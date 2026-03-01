@@ -29,9 +29,13 @@ final class CommandBarService {
     private let aiCoordinator: AICoordinator
     private var searchTask: Task<Void, Never>?
 
-    init(contentManager: ContentManager = .shared, aiCoordinator: AICoordinator) {
+    init(contentManager: ContentManager, aiCoordinator: AICoordinator) {
         self.contentManager = contentManager
         self.aiCoordinator = aiCoordinator
+    }
+
+    convenience init(aiCoordinator: AICoordinator) {
+        self.init(contentManager: .shared, aiCoordinator: aiCoordinator)
     }
 
     // Process user input with debouncing - handles both search and content import
@@ -208,23 +212,18 @@ final class CommandBarService {
     }
 
     private func importURL(_ url: URL) async {
-        do {
-            aiCoordinator.isLoading = true
-            defer { aiCoordinator.isLoading = false }
+        aiCoordinator.isLoading = true
+        defer { aiCoordinator.isLoading = false }
 
-            // Import URL content
-            await contentManager.importAndDisplay(
-                text: url.absoluteString,
-                appName: "Command Bar",
-                bundleID: nil
-            )
+        // Import URL content
+        await contentManager.importAndDisplay(
+            text: url.absoluteString,
+            appName: "Command Bar",
+            bundleID: nil
+        )
 
-            // Close command bar after successful import
-            aiCoordinator.hideCommandBar()
-
-        } catch {
-            aiCoordinator.errorMessage = "Failed to import URL: \(error.localizedDescription)"
-        }
+        // Close command bar after successful import
+        aiCoordinator.hideCommandBar()
     }
 
     private func iconForSourceType(_ type: SourceType) -> String {
