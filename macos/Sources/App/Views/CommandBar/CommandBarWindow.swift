@@ -25,6 +25,7 @@ private struct SimpleMockProvider: AIProviderProtocol {
 struct CommandBarWindow: View {
     @Environment(AICoordinator.self) private var coordinator
     @State private var query: String = ""
+    @State private var service: CommandBarService!
 
     var body: some View {
         HStack(spacing: 0) {
@@ -81,6 +82,13 @@ struct CommandBarWindow: View {
         .onKeyPress(.tab) {
             coordinator.showPreviewPanel.toggle()
             return .handled
+        }
+        .onAppear {
+            service = CommandBarService(aiCoordinator: coordinator)
+            service.search("")  // Show quick actions
+        }
+        .onChange(of: query) { oldValue, newValue in
+            service.search(newValue)
         }
         .onChange(of: coordinator.isCommandBarVisible) { oldValue, newValue in
             if newValue {
