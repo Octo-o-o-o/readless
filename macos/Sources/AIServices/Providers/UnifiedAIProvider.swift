@@ -57,3 +57,36 @@ public final class UnifiedAIProvider: Sendable {
         throw AIError.modelNotAvailable
     }
 }
+
+extension UnifiedAIProvider {
+    /// Analyze image using vision models
+    public func analyzeImage(
+        imageData: Data,
+        prompt: String,
+        model: String = "gpt-4o"
+    ) async throws -> String {
+        // Convert image to base64
+        let base64 = imageData.base64EncodedString()
+
+        // For now, stub implementation
+        // TODO: Implement with OpenAI vision API
+        throw AIError.modelNotAvailable
+    }
+
+    /// Analyze PDF (extract text and images)
+    public func analyzePDF(
+        pdfData: Data,
+        prompt: String,
+        model: String = "gpt-4o"
+    ) async throws -> String {
+        // For now, stub implementation
+        // TODO: Convert PDF to images using PDFKit, then analyze
+        throw AIError.modelNotAvailable
+    }
+
+    /// Helper: Extract images from PDF
+    private func extractImagesFromPDF(_ pdfData: Data) throws -> [Data] {
+        // TODO: Implement with PDFKit
+        return []
+    }
+}
