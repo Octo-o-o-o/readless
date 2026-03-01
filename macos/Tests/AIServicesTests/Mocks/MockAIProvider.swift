@@ -56,6 +56,9 @@ public final class MockAIProvider: AIProviderProtocol, Sendable {
     }
 
     public func isReasoningModel(_ model: String) -> Bool {
-        ["o1-", "o3-", "deepseek-reasoner"].contains { model.hasPrefix($0) }
+        let prefixes = ["o1-", "o3-"]
+        let exactMatches = ["deepseek-reasoner"]
+
+        return prefixes.contains { model.hasPrefix($0) } || exactMatches.contains(model)
     }
 }

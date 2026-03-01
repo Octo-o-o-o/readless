@@ -121,4 +121,77 @@ final class InputParserTests: XCTestCase {
 
         XCTAssertEqual(result, .url(URL(string: "https://example.com/article")!))
     }
+
+    // MARK: - URL Scheme Validation Tests
+
+    func testURLSchemeValidation_HTTPSAllowed() async throws {
+        let input = CommandBarInput.text("https://example.com")
+        let result = try await parser.parse(input)
+
+        XCTAssertEqual(result, .url(URL(string: "https://example.com")!))
+    }
+
+    func testURLSchemeValidation_HTTPAllowed() async throws {
+        let input = CommandBarInput.text("http://example.com")
+        let result = try await parser.parse(input)
+
+        XCTAssertEqual(result, .url(URL(string: "http://example.com")!))
+    }
+
+    func testURLSchemeValidation_FileSchemeRejected() async throws {
+        let input = CommandBarInput.text("file:///etc/passwd")
+        let result = try await parser.parse(input)
+
+        // Should be treated as plain text, not URL
+        XCTAssertEqual(result, .plainText("file:///etc/passwd"))
+    }
+
+    func testURLSchemeValidation_JavaScriptSchemeRejected() async throws {
+        let input = CommandBarInput.text("javascript:alert('xss')")
+        let result = try await parser.parse(input)
+
+        // Should be treated as plain text, not URL
+        XCTAssertEqual(result, .plainText("javascript:alert('xss')"))
+    }
+
+    func testURLSchemeValidation_DataSchemeRejected() async throws {
+        let input = CommandBarInput.text("data:text/html,<script>alert('xss')</script>")
+        let result = try await parser.parse(input)
+
+        // Should be treated as plain text, not URL
+        XCTAssertEqual(result, .plainText("data:text/html,<script>alert('xss')</script>"))
+    }
+
+    // MARK: - Empty String Edge Cases
+
+    func testParseEmptyString() async throws {
+        let input = CommandBarInput.text("")
+        let result = try await parser.parse(input)
+
+        XCTAssertEqual(result, .plainText(""))
+    }
+
+    func testParseWhitespaceOnlyString() async throws {
+        let input = CommandBarInput.text("   \n\t  ")
+        let result = try await parser.parse(input)
+
+        // Should return the original text (not trim it)
+        XCTAssertEqual(result, .plainText("   \n\t  "))
+    }
+
+    func testParseWhitespaceAroundURL() async throws {
+        let input = CommandBarInput.text("  https://example.com  ")
+        let result = try await parser.parse(input)
+
+        // Should still detect URL after trimming
+        XCTAssertEqual(result, .url(URL(string: "https://example.com")!))
+    }
+
+    func testParseWhitespaceAroundCommand() async throws {
+        let input = CommandBarInput.text("  /search test  ")
+        let result = try await parser.parse(input)
+
+        // Should still detect command after trimming (but preserve original)
+        XCTAssertEqual(result, .command("  /search test  "))
+    }
 }

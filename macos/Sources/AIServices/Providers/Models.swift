@@ -65,12 +65,12 @@ public enum AIError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidResponse: return "AI 返回了无效的响应"
-        case .rateLimitExceeded: return "请求频率超限，请稍后再试"
-        case .authenticationFailed: return "API 认证失败"
-        case .modelNotAvailable: return "所选模型暂时不可用"
-        case .timeout: return "请求超时"
-        case .networkError(let error): return "网络错误: \(error.localizedDescription)"
+        case .invalidResponse: return "AI returned an invalid response"
+        case .rateLimitExceeded: return "Rate limit exceeded, please try again later"
+        case .authenticationFailed: return "API authentication failed"
+        case .modelNotAvailable: return "Selected model is not available"
+        case .timeout: return "Request timed out"
+        case .networkError(let error): return "Network error: \(error.localizedDescription)"
         case .noMockResponse: return "Mock provider has no response"
         }
     }

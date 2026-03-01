@@ -25,13 +25,25 @@ public final class InputParser: Sendable {
     }
 
     private func parseText(_ text: String) async throws -> ParsedInput {
-        // 1. Check if URL
-        if let url = URL(string: text), url.scheme != nil {
-            return .url(url)
+        // Handle empty or whitespace-only strings
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .plainText(text)
+        }
+
+        // 1. Check if URL with valid scheme
+        if let url = URL(string: trimmed), let scheme = url.scheme {
+            // Only accept http and https schemes for security
+            let allowedSchemes = ["http", "https"]
+            if allowedSchemes.contains(scheme.lowercased()) {
+                return .url(url)
+            }
+            // If URL has disallowed scheme, treat as plain text
+            return .plainText(text)
         }
 
         // 2. Check if command keyword
-        if text.hasPrefix("/") || text.hasPrefix(">") {
+        if trimmed.hasPrefix("/") || trimmed.hasPrefix(">") {
             return .command(text)
         }
 

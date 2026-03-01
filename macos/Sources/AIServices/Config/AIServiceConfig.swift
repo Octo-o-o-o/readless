@@ -25,12 +25,12 @@ public struct AIServiceConfig: Codable, Sendable, Equatable {
             temperature: Double?,
             maxTokens: Int
         ) {
-            // I2: Add input validation
-            assert(!providerName.isEmpty, "Provider name cannot be empty")
-            assert(!model.isEmpty, "Model name cannot be empty")
-            assert(maxTokens > 0, "Max tokens must be positive")
+            // Validate inputs (using precondition for production safety)
+            precondition(!providerName.isEmpty, "Provider name cannot be empty")
+            precondition(!model.isEmpty, "Model name cannot be empty")
+            precondition(maxTokens > 0, "Max tokens must be positive")
             if let temp = temperature {
-                assert(temp >= 0.0 && temp <= 2.0, "Temperature must be between 0.0 and 2.0")
+                precondition(temp >= 0.0 && temp <= 2.0, "Temperature must be between 0.0 and 2.0")
             }
 
             self.providerName = providerName
