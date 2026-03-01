@@ -328,6 +328,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gear") }
+            CacheSettingsView()
+                .tabItem { Label("Cache & Search", systemImage: "internaldrive") }
             HotkeySettingsView()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
             ChannelsSettingsView()
@@ -335,7 +337,7 @@ struct SettingsView: View {
             AccountSettingsView()
                 .tabItem { Label("Account", systemImage: "person.circle") }
         }
-        .frame(width: 550, height: 400)
+        .frame(width: 550, height: 450)  // Increased height for cache stats
     }
 }
 

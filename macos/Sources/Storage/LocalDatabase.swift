@@ -5,7 +5,7 @@ import Core
 /// LocalDatabase provides CRUD operations for Content with GRDB.
 /// Supports local persistence, sync tracking, and bi-directional sync with backend.
 public final class LocalDatabase {
-    private let dbQueue: DatabaseQueue
+    internal let dbQueue: DatabaseQueue  // Changed to internal for CacheManager access
 
     /// Singleton instance using default production database path.
     public static let shared: LocalDatabase = {
@@ -23,6 +23,11 @@ public final class LocalDatabase {
     public init(path: String) throws {
         dbQueue = try DatabaseQueue(path: path)
         try migrator.migrate(dbQueue)
+    }
+
+    /// Get database file path (for cache size calculation)
+    public var databasePath: String {
+        dbQueue.path
     }
 
     // MARK: - Migration
@@ -91,6 +96,77 @@ public final class LocalDatabase {
                 CREATE TRIGGER command_history_au AFTER UPDATE ON command_history BEGIN
                     INSERT INTO command_history_fts(command_history_fts, rowid, query) VALUES('delete', old.rowid, old.query);
                     INSERT INTO command_history_fts(rowid, query) VALUES (new.rowid, new.query);
+                END;
+            """)
+        }
+
+        // v3: Add cache management columns and tables
+        migrator.registerMigration("v3") { db in
+            // Add last_accessed_at for LRU eviction
+            try db.alter(table: "contents") { t in
+                t.add(column: "last_accessed_at", .datetime)
+            }
+
+            // Add full_text for local search
+            try db.alter(table: "contents") { t in
+                t.add(column: "full_text", .text)
+            }
+
+            // Create paragraphs table for complete local data
+            try db.create(table: "paragraphs") { t in
+                t.column("id", .text).primaryKey()
+                t.column("content_id", .text).notNull()
+                    .references("contents", onDelete: .cascade)
+                t.column("anchor_id", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("position", .integer).notNull()
+            }
+
+            try db.create(index: "idx_paragraphs_content_id", on: "paragraphs", columns: ["content_id"])
+
+            // Create expanded_details cache table
+            try db.create(table: "expanded_details") { t in
+                t.column("content_id", .text).notNull()
+                    .references("contents", onDelete: .cascade)
+                t.column("point_index", .integer).notNull()
+                t.column("detail_text", .text).notNull()
+                t.column("cached_at", .datetime).notNull()
+
+                t.primaryKey(["content_id", "point_index"])
+            }
+
+            try db.create(index: "idx_expanded_details_content_id", on: "expanded_details", columns: ["content_id"])
+
+            // Create FTS5 virtual table for full-text content search
+            try db.create(virtualTable: "contents_fts", using: FTS5()) { t in
+                t.column("title")
+                t.column("full_text")
+                t.column("l0_summary")
+                t.content = "contents"
+                t.contentRowID = "rowid"
+            }
+
+            // Create triggers to keep FTS5 in sync
+            try db.execute(sql: """
+                CREATE TRIGGER contents_ai AFTER INSERT ON contents BEGIN
+                    INSERT INTO contents_fts(rowid, title, full_text, l0_summary)
+                    VALUES (new.rowid, new.title, new.full_text, new.l0_summary);
+                END;
+            """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER contents_ad AFTER DELETE ON contents BEGIN
+                    INSERT INTO contents_fts(contents_fts, rowid, title, full_text, l0_summary)
+                    VALUES('delete', old.rowid, old.title, old.full_text, old.l0_summary);
+                END;
+            """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER contents_au AFTER UPDATE ON contents BEGIN
+                    INSERT INTO contents_fts(contents_fts, rowid, title, full_text, l0_summary)
+                    VALUES('delete', old.rowid, old.title, old.full_text, old.l0_summary);
+                    INSERT INTO contents_fts(rowid, title, full_text, l0_summary)
+                    VALUES (new.rowid, new.title, new.full_text, new.l0_summary);
                 END;
             """)
         }

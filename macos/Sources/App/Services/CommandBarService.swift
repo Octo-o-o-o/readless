@@ -3,6 +3,8 @@ import Foundation
 import AppKit
 import Core
 import AIServices
+import Storage
+import Networking
 
 // Simple mock provider for input parsing (doesn't need actual AI)
 private struct SimpleMockProvider: AIProviderProtocol {
@@ -27,15 +29,36 @@ private struct SimpleMockProvider: AIProviderProtocol {
 final class CommandBarService {
     private let contentManager: ContentManager
     private let aiCoordinator: AICoordinator
+    private let apiClient: APIClient
+    private let localSearch: LocalSearchService
+    private let userDefaults: UserDefaults
     private var searchTask: Task<Void, Never>?
 
-    init(contentManager: ContentManager, aiCoordinator: AICoordinator) {
+    init(
+        contentManager: ContentManager,
+        aiCoordinator: AICoordinator,
+        apiClient: APIClient = .shared,
+        localSearch: LocalSearchService = .shared,
+        userDefaults: UserDefaults = .standard
+    ) {
         self.contentManager = contentManager
         self.aiCoordinator = aiCoordinator
+        self.apiClient = apiClient
+        self.localSearch = localSearch
+        self.userDefaults = userDefaults
     }
 
     convenience init(aiCoordinator: AICoordinator) {
         self.init(contentManager: .shared, aiCoordinator: aiCoordinator)
+    }
+
+    /// Current search mode from settings
+    private var searchMode: SearchMode {
+        if let modeString = userDefaults.string(forKey: "searchMode"),
+           let mode = SearchMode(rawValue: modeString) {
+            return mode
+        }
+        return .cloud  // Default to cloud search
     }
 
     // Process user input with debouncing - handles both search and content import
@@ -126,38 +149,84 @@ final class CommandBarService {
     }
 
     private func performSearch(_ query: String) async {
-        // Search local content
-        let results = contentManager.contents.filter { content in
-            content.title.localizedCaseInsensitiveContains(query) ||
-            (content.l0Summary?.localizedCaseInsensitiveContains(query) ?? false)
+        // Route to appropriate search based on mode
+        switch searchMode {
+        case .cloud:
+            await performCloudSearch(query)
+        case .local:
+            await performLocalSearch(query)
         }
+    }
 
-        if results.isEmpty {
-            // No results - suggest importing as new content
-            aiCoordinator.commandResults = [
-                CommandResult(
-                    title: "No results found for \"\(query)\"",
-                    subtitle: "Import this as new content?",
-                    icon: "doc.badge.plus"
-                ) {
-                    await self.importText(query)
-                }
-            ]
-        } else {
-            // Convert to command results
-            aiCoordinator.commandResults = results.prefix(10).map { content in
-                CommandResult(
-                    title: content.title,
-                    subtitle: content.sourceType.rawValue,
-                    icon: iconForSourceType(content.sourceType)
-                ) {
-                    // Open content
-                    NotificationCenter.default.post(
-                        name: Notification.Name("openContent"),
-                        object: content.id
-                    )
+    /// Cloud-based AI search (PostgreSQL FTS + OpenAI)
+    private func performCloudSearch(_ query: String) async {
+        do {
+            let result = try await apiClient.search(query: query)
+
+            if result.sources.isEmpty {
+                // No results - suggest importing as new content
+                aiCoordinator.commandResults = [
+                    CommandResult(
+                        title: "No results found",
+                        subtitle: "Import this as new content?",
+                        icon: "doc.badge.plus"
+                    ) {
+                        await self.importText(query)
+                    }
+                ]
+            } else {
+                // Show AI answer + sources
+                aiCoordinator.commandResults = result.sources.prefix(10).map { source in
+                    CommandResult(
+                        title: source.title,
+                        subtitle: source.l0Summary ?? "Click to open",
+                        icon: "doc.text"
+                    ) {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("openContent"),
+                            object: source.id
+                        )
+                    }
                 }
             }
+        } catch {
+            aiCoordinator.errorMessage = "Cloud search failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Local SQLite FTS5 search
+    private func performLocalSearch(_ query: String) async {
+        do {
+            let result = try await localSearch.search(query: query)
+
+            if result.results.isEmpty {
+                // No results - suggest importing as new content
+                aiCoordinator.commandResults = [
+                    CommandResult(
+                        title: "No results in local cache",
+                        subtitle: "Import this as new content?",
+                        icon: "doc.badge.plus"
+                    ) {
+                        await self.importText(query)
+                    }
+                ]
+            } else {
+                // Convert to command results
+                aiCoordinator.commandResults = result.results.prefix(10).map { item in
+                    CommandResult(
+                        title: item.title,
+                        subtitle: item.snippet,
+                        icon: "doc.text"
+                    ) {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("openContent"),
+                            object: item.id
+                        )
+                    }
+                }
+            }
+        } catch {
+            aiCoordinator.errorMessage = "Local search failed: \(error.localizedDescription)"
         }
     }
 

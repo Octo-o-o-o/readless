@@ -9,7 +9,11 @@ import Networking
 final class ReaderViewModel {
     var content: Content?
     var paragraphs: [(anchorID: String, text: String)] = []
-    var expandedDetails: [Int: String] = [:]  // point index -> L2 detail text
+
+    // Separate cache and expansion state
+    private var cachedDetails: [Int: String] = [:]  // Permanent cache (cleared only on content switch)
+    var expandedIndices: Set<Int> = []              // Current expansion state
+
     var focusedIndex: Int = 0
     var showSourcePanel: Bool = false
     var sourceAnchorID: String?
@@ -23,6 +27,13 @@ final class ReaderViewModel {
     var isLoadingTranslation: Bool = false
 
     private let api: APIClient
+
+    /// Computed property for view compatibility
+    var expandedDetails: [Int: String] {
+        expandedIndices.reduce(into: [:]) { result, index in
+            result[index] = cachedDetails[index]
+        }
+    }
 
     init(api: APIClient? = nil) {
         self.api = api ?? .shared
@@ -42,7 +53,8 @@ final class ReaderViewModel {
 
     func loadContent(contentID: String) async {
         // Reset state for new content
-        expandedDetails = [:]
+        cachedDetails = [:]      // Clear cache on content switch
+        expandedIndices = []     // Clear expansion state
         focusedIndex = 0
         followUpAnswer = nil
 
@@ -72,25 +84,33 @@ final class ReaderViewModel {
     func expandPoint(at index: Int) async {
         guard let content, let outline = content.l1Outline, index < outline.count else { return }
 
-        // If already expanded, toggle collapse
-        if expandedDetails[index] != nil {
-            expandedDetails.removeValue(forKey: index)
+        // Toggle expansion state
+        if expandedIndices.contains(index) {
+            expandedIndices.remove(index)  // Collapse, but keep cache
+            return
+        }
+
+        // Check cache first (instant expansion)
+        if cachedDetails[index] != nil {
+            expandedIndices.insert(index)
             return
         }
 
         // If the OutlinePoint already carries inline detail, use it
         if let inlineDetail = outline[index].detail {
-            expandedDetails[index] = inlineDetail
+            cachedDetails[index] = inlineDetail
+            expandedIndices.insert(index)
             return
         }
 
-        // Fetch from API
+        // Cache miss - fetch from API
         isLoadingExpand = true
         defer { isLoadingExpand = false }
 
         do {
             let detail = try await api.expandPoint(contentID: content.id, pointIndex: index)
-            expandedDetails[index] = detail
+            cachedDetails[index] = detail  // Save to cache
+            expandedIndices.insert(index)  // Expand
         } catch {
             // Silently fail; user can retry
         }

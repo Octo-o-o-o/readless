@@ -150,6 +150,7 @@ async def list_contents(
                 created_at=content.created_at,
                 updated_at=content.updated_at,
                 podcast_url=None,
+                full_text=content.full_text,  # Include for local search
             )
         )
 
@@ -315,6 +316,7 @@ async def translate_content(
         status=content.status,
         created_at=content.created_at,
         updated_at=content.updated_at,
+        full_text=content.full_text,  # Include full_text
     )
 
 
@@ -339,4 +341,5 @@ async def _to_response(c: Content, db: AsyncSession) -> ContentResponse:
         status=c.status,
         created_at=c.created_at,
         updated_at=c.updated_at,
+        full_text=c.full_text,  # Include full_text for local search sync
     )

@@ -32,6 +32,7 @@ class ContentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     podcast_url: str | None = None
+    full_text: str | None = None  # For local search sync
 
 
 class ExpandRequest(BaseModel):

@@ -39,6 +39,7 @@ public struct Content: Identifiable, Codable, Sendable {
     public let createdAt: Date
     public var updatedAt: Date
     public var podcastURL: String?
+    public var fullText: String?  // Full text for local search
 
     // Explicit CodingKeys because .convertFromSnakeCase maps
     // "source_url" → "sourceUrl" (not "sourceURL") and
@@ -56,6 +57,7 @@ public struct Content: Identifiable, Codable, Sendable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case podcastURL = "podcast_url"
+        case fullText = "full_text"
     }
 
     public init(
@@ -72,7 +74,8 @@ public struct Content: Identifiable, Codable, Sendable {
         status: ContentStatus = .pending,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
-        podcastURL: String? = nil
+        podcastURL: String? = nil,
+        fullText: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -88,5 +91,6 @@ public struct Content: Identifiable, Codable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.podcastURL = podcastURL
+        self.fullText = fullText
     }
 }

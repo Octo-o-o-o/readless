@@ -20,6 +20,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
     var syncedAt: Date?
     var isFavorite: Bool
     var podcastURL: String?
+    var fullText: String?  // Full text for local search
 
     static var databaseTableName: String { "contents" }
 
@@ -39,6 +40,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         static let syncedAt = Column(CodingKeys.syncedAt)
         static let isFavorite = Column(CodingKeys.isFavorite)
         static let podcastURL = Column(CodingKeys.podcastURL)
+        static let fullText = Column(CodingKeys.fullText)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -57,6 +59,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         case syncedAt = "synced_at"
         case isFavorite = "is_favorite"
         case podcastURL = "podcast_url"
+        case fullText = "full_text"
     }
 
     // MARK: - Initialization from Content
@@ -77,6 +80,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         self.syncedAt = nil
         self.isFavorite = false
         self.podcastURL = content.podcastURL
+        self.fullText = content.fullText
     }
 
     // MARK: - Conversion to Content
@@ -103,7 +107,8 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
             status: ContentStatus(rawValue: status) ?? .pending,
             createdAt: createdAt,
             updatedAt: updatedAt,
-            podcastURL: podcastURL
+            podcastURL: podcastURL,
+            fullText: fullText
         )
     }
 }

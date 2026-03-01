@@ -1,0 +1,169 @@
+import Foundation
+import GRDB
+import Core
+
+/// Local full-text search service using SQLite FTS5
+public final class LocalSearchService {
+    private let database: LocalDatabase
+
+    public static let shared = LocalSearchService(database: .shared)
+
+    public init(database: LocalDatabase) {
+        self.database = database
+    }
+
+    // MARK: - Search
+
+    /// Search locally cached content using FTS5
+    public func search(query: String, limit: Int = 20) async throws -> SearchResult {
+        let results = try await database.dbQueue.read { db -> [SearchResultItem] in
+            // FTS5 query format
+            let ftsQuery = prepareFTSQuery(query)
+
+            // Search using FTS5 with ranking
+            let sql = """
+                SELECT
+                    c.id,
+                    c.title,
+                    c.l0_summary,
+                    c.created_at,
+                    c.source_url,
+                    bm25(contents_fts) as rank
+                FROM contents c
+                JOIN contents_fts ON contents_fts.rowid = c.rowid
+                WHERE contents_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+            """
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: [ftsQuery, limit])
+
+            return rows.compactMap { row -> SearchResultItem? in
+                guard let id = row["id"] as? String,
+                      let title = row["title"] as? String else {
+                    return nil
+                }
+
+                let summary = row["l0_summary"] as? String
+                let sourceURL = row["source_url"] as? String
+                let createdAt = row["created_at"] as? Date
+
+                // Generate snippet (highlight matching text)
+                let snippet = try? String.fetchOne(
+                    db,
+                    sql: "SELECT snippet(contents_fts, 1, '<mark>', '</mark>', '...', 64) FROM contents_fts WHERE rowid = ?",
+                    arguments: [row["rowid"]]
+                ) ?? summary ?? ""
+
+                return SearchResultItem(
+                    id: id,
+                    title: title,
+                    snippet: snippet ?? summary ?? "",
+                    sourceURL: sourceURL,
+                    createdAt: createdAt ?? Date(),
+                    relevanceScore: 0.0  // FTS5 BM25 rank is negative
+                )
+            }
+        }
+
+        return SearchResult(
+            query: query,
+            results: results,
+            totalCount: results.count
+        )
+    }
+
+    // MARK: - FTS Query Preparation
+
+    /// Convert natural language query to FTS5 query syntax
+    private func prepareFTSQuery(_ query: String) -> String {
+        // Split query into terms
+        let terms = query
+            .split(separator: " ")
+            .map { String($0) }
+            .filter { !$0.isEmpty }
+
+        guard !terms.isEmpty else {
+            return query
+        }
+
+        // Build FTS5 query with OR operator for better recall
+        // Example: "swift async" -> "swift OR async"
+        let ftsQuery = terms.map { "\"\($0)\"*" }.joined(separator: " OR ")
+
+        return ftsQuery
+    }
+
+    // MARK: - Content Syncing
+
+    /// Sync content from server to local database for offline search
+    public func syncContent(_ content: Content, fullText: String?, paragraphs: [(anchorID: String, text: String)]) async throws {
+        try await database.dbQueue.write { db in
+            // Update content with full_text
+            if let fullText = fullText {
+                try db.execute(
+                    sql: "UPDATE contents SET full_text = ?, last_accessed_at = ? WHERE id = ?",
+                    arguments: [fullText, Date(), content.id]
+                )
+            }
+
+            // Save paragraphs for complete local data
+            for para in paragraphs {
+                try db.execute(
+                    sql: """
+                        INSERT INTO paragraphs (id, content_id, anchor_id, text, position)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            text = excluded.text,
+                            position = excluded.position
+                    """,
+                    arguments: [
+                        UUID().uuidString,
+                        content.id,
+                        para.anchorID,
+                        para.text,
+                        0  // Position will be set properly if available
+                    ]
+                )
+            }
+
+            print("[LocalSearch] Synced content: \(content.title)")
+        }
+    }
+
+    /// Check if content has full data cached locally
+    public func hasFullDataCached(contentID: String) async throws -> Bool {
+        try await database.dbQueue.read { db in
+            let hasFullText = try Bool.fetchOne(
+                db,
+                sql: "SELECT full_text IS NOT NULL FROM contents WHERE id = ?",
+                arguments: [contentID]
+            ) ?? false
+
+            let hasParagraphs = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM paragraphs WHERE content_id = ?",
+                arguments: [contentID]
+            ) ?? 0 > 0
+
+            return hasFullText && hasParagraphs
+        }
+    }
+}
+
+// MARK: - Search Result Models
+
+public struct SearchResult: Sendable {
+    public let query: String
+    public let results: [SearchResultItem]
+    public let totalCount: Int
+}
+
+public struct SearchResultItem: Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let snippet: String
+    public let sourceURL: String?
+    public let createdAt: Date
+    public let relevanceScore: Double
+}
