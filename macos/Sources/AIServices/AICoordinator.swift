@@ -71,6 +71,13 @@ public struct SearchResult: Identifiable {
     public let title: String
     public let snippet: String
     public let relevanceScore: Double
+
+    public init(contentID: String, title: String, snippet: String, relevanceScore: Double) {
+        self.contentID = contentID
+        self.title = title
+        self.snippet = snippet
+        self.relevanceScore = relevanceScore
+    }
 }
 
 public enum Suggestion: Identifiable {
