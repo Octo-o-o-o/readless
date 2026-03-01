@@ -1,6 +1,7 @@
 import SwiftUI
 import Core
 import UI
+import Networking
 
 // MARK: - Reader View
 
@@ -15,6 +16,8 @@ import UI
 struct ReaderView: View {
     @State private var viewModel = ReaderViewModel()
     @AppStorage("targetLanguage") private var targetLanguage = "auto"
+    @Environment(TagManager.self) private var tagManager
+    @State private var contentManager = ContentManager.shared
     let contentID: String
 
     var body: some View {
@@ -80,6 +83,20 @@ struct ReaderView: View {
                             Text(summary)
                                 .font(Theme.l0Font)
                                 .foregroundStyle(.secondary)
+                        }
+
+                        // Tags section
+                        if let originalContent = viewModel.content {
+                            TagsView(
+                                tags: originalContent.tags,
+                                availableTags: tagManager.userTags.map { $0.tagName },
+                                onAdd: { tagName in
+                                    await addTag(tagName)
+                                },
+                                onRemove: { tagName in
+                                    await removeTag(tagName)
+                                }
+                            )
                         }
                     }
                     .padding()
@@ -167,6 +184,54 @@ struct ReaderView: View {
         case "de": return "Deutsch"
         case "ko": return "한국어"
         default: return code.uppercased()
+        }
+    }
+
+    // MARK: - Tag Management
+
+    private func addTag(_ tagName: String) async {
+        guard let content = viewModel.content else { return }
+        var newTags = content.tags
+        if !newTags.contains(tagName) {
+            newTags.append(tagName)
+
+            do {
+                _ = try await APIClient.shared.updateContentTags(
+                    contentId: content.id,
+                    tags: newTags
+                )
+
+                // Refresh content to get updated tags
+                await contentManager.refreshContent(id: content.id)
+                await viewModel.loadContent(contentID: content.id)
+
+                // Reload tags to update counts
+                await tagManager.loadUserTags()
+            } catch {
+                print("[ReaderView] Failed to add tag: \(error)")
+            }
+        }
+    }
+
+    private func removeTag(_ tagName: String) async {
+        guard let content = viewModel.content else { return }
+        var newTags = content.tags
+        newTags.removeAll { $0 == tagName }
+
+        do {
+            _ = try await APIClient.shared.updateContentTags(
+                contentId: content.id,
+                tags: newTags
+            )
+
+            // Refresh content to get updated tags
+            await contentManager.refreshContent(id: content.id)
+            await viewModel.loadContent(contentID: content.id)
+
+            // Reload tags to update counts
+            await tagManager.loadUserTags()
+        } catch {
+            print("[ReaderView] Failed to remove tag: \(error)")
         }
     }
 }

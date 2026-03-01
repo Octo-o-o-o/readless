@@ -114,6 +114,23 @@ final class ContentManager {
         await loadContents()
     }
 
+    /// Refresh a single content item by fetching its latest data
+    func refreshContent(id: String) async {
+        do {
+            let updatedContent = try await api.fetchContent(id: id)
+
+            // Update in array
+            if let index = contents.firstIndex(where: { $0.id == id }) {
+                contents[index] = updatedContent
+            }
+
+            error = nil
+        } catch {
+            self.error = error
+            print("[ContentManager] Failed to refresh content: \(error)")
+        }
+    }
+
     // MARK: - Notifications
 
     private func showToast(_ message: String) {
