@@ -5,16 +5,37 @@ import Storage
 import UI
 import AIServices
 import KeyboardShortcuts
+import ClerkKit
+import ClerkKitUI
 
 @main
 struct ReadlessApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var aiCoordinator = AICoordinator()
+    @State private var tagManager = TagManager()
+
+    init() {
+        // Configure Clerk with publishable key and redirect URL
+        Clerk.configure(
+            publishableKey: "pk_test_c2V0dGxlZC1oZXJyaW5nLTQ3LmNsZXJrLmFjY291bnRzLmRldiQ",
+            options: .init(
+                redirectConfig: .init(
+                    redirectUrl: "readless://auth/callback"
+                )
+            )
+        )
+
+        // CRITICAL: Initialize AuthManager to sync persisted session token
+        // This must happen BEFORE any API calls are made
+        _ = AuthManager.shared
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(Clerk.shared)
                 .environment(aiCoordinator)
+                .environment(tagManager)
                 .overlay {
                     if aiCoordinator.isCommandBarVisible {
                         Color.black.opacity(0.3)
@@ -179,6 +200,9 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 struct SidebarView: View {
     @Binding var selection: SidebarSection?
     @Environment(\.openSettings) private var openSettings
+    @Environment(Clerk.self) private var clerk
+    @State private var showAuthSheet = false
+    @State private var showSignOutConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -215,18 +239,39 @@ struct SidebarView: View {
 
                 Spacer()
 
-                Button(action: { /* TODO: Account/Login */ }) {
-                    Label("Account", systemImage: "person.circle")
+                Button(action: handleAccountButtonTap) {
+                    Label("Account", systemImage: clerk.user != nil ? "person.circle.fill" : "person.circle")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.plain)
-                .help("Account")
+                .help(clerk.user != nil ? "Sign Out" : "Sign In")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color(nsColor: .controlBackgroundColor))
         }
         .navigationTitle("Readless")
+        .sheet(isPresented: $showAuthSheet) {
+            SimpleAuthView()
+        }
+        .alert("Sign Out", isPresented: $showSignOutConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                Task {
+                    try? await AuthManager.shared.signOut()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
+    }
+
+    private func handleAccountButtonTap() {
+        if clerk.user != nil {
+            showSignOutConfirm = true
+        } else {
+            showAuthSheet = true
+        }
     }
 }
 
@@ -294,9 +339,72 @@ struct ChannelsSettingsView: View {
 }
 
 struct AccountSettingsView: View {
+    @Environment(Clerk.self) private var clerk
+    @State private var showAuthSheet = false
+
     var body: some View {
         Form {
-            Text("Account & subscription placeholder")
+            Section("Account") {
+                if let user = clerk.user {
+                    // Logged in state
+                    HStack {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Signed In")
+                                .font(.headline)
+                            if let email = user.primaryEmailAddress?.emailAddress {
+                                Text(email)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 8)
+
+                    Button(action: {
+                        Task {
+                            try? await AuthManager.shared.signOut()
+                        }
+                    }) {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } else {
+                    // Logged out state
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.crop.circle.badge.questionmark")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("Not signed in")
+                            .font(.headline)
+                        Text("Sign in to sync your content across devices")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        Button(action: {
+                            showAuthSheet = true
+                        }) {
+                            Label("Sign In", systemImage: "person.crop.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+            Section {
+                Text("Your authentication status is managed securely using Clerk. Sessions are encrypted and stored securely on your device.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 500)
+        .sheet(isPresented: $showAuthSheet) {
+            SimpleAuthView()
         }
     }
 }
