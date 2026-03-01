@@ -2,11 +2,13 @@
 
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import Content
+from app.models.content_tag import ContentTag
 from app.models.paragraph import Paragraph
+from app.models.user_tag import UserTag
 from app.services.extractor import ContentExtractor
 from app.services.summarizer import SummarizationService
 
@@ -51,8 +53,21 @@ class ProcessingPipeline:
         else:
             raise ValueError(f"Unsupported source_type: {source_type}")
 
-        # Step 2: AI Summarize
-        summary, detected_language = await self.summarizer.summarize(extracted)
+        # Step 2: AI Summarize with tag selection
+        # Extract paragraphs as text list for the new generate_summary API
+        paragraph_texts = [p.text for p in extracted.paragraphs]
+
+        summary = await self.summarizer.generate_summary(
+            full_text=extracted.full_text,
+            paragraphs=paragraph_texts,
+            user_id=user_id,
+            db=db,
+        )
+
+        # Detect language from L0 summary
+        from app.services.translator import _get_service
+        translator = _get_service()
+        detected_language = await translator.detect_language(summary.l0_summary)
 
         # Step 3: Store in DB
         content = Content(
@@ -66,13 +81,32 @@ class ProcessingPipeline:
             source_language=detected_language,
             l0_summary=summary.l0_summary,
             l1_outline=[p.model_dump() for p in summary.l1_outline],
-            tags=summary.tags,
             keywords=summary.keywords,
             full_text=extracted.full_text,
             status="ready",
             user_id=user_id,
         )
         db.add(content)
+
+        # Step 3a: Save tags to content_tags table
+        for tag_name in summary.tags:
+            # Get tag_id from user's library
+            stmt = select(UserTag.id).where(
+                UserTag.user_id == user_id,
+                UserTag.tag_name == tag_name,
+                UserTag.deleted_at.is_(None),
+            )
+            result = await db.execute(stmt)
+            tag_id = result.scalar_one_or_none()
+
+            if tag_id:
+                # Create content-tag relationship
+                content_tag = ContentTag(
+                    content_id=content_id,
+                    tag_id=tag_id,
+                    user_id=user_id,
+                )
+                db.add(content_tag)
 
         # Step 4: Store paragraphs
         for para in extracted.paragraphs:
