@@ -5,6 +5,7 @@ import AIServices
 struct CommandResultRow: View {
     let result: CommandResult
     let isSelected: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 12) {
@@ -13,6 +14,7 @@ struct CommandResultRow: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .frame(width: 24)
+                .accessibilityHidden(true)
 
             // Title and subtitle
             VStack(alignment: .leading, spacing: 2) {
@@ -35,24 +37,33 @@ struct CommandResultRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
         )
-        .scaleEffect(isSelected ? 1.02 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isSelected)
+        .scaleEffect(isSelected && !reduceMotion ? 1.02 : 1.0)
+        .animation(reduceMotion ? .none : .spring(response: 0.2, dampingFraction: 0.8), value: isSelected)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(result.title)
+        .accessibilityValue(result.subtitle ?? "")
+        .accessibilityHint(isSelected ? "Selected. Press Enter to execute" : "Press up or down arrows to select")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }
 
 struct CommandBarResultsList: View {
     let results: [CommandResult]
     let selectedIndex: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         LazyVStack(spacing: 4) {
             ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                 CommandResultRow(result: result, isSelected: index == selectedIndex)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Command results")
+        .accessibilityValue("\(results.count) results")
     }
 }
 

@@ -18,6 +18,9 @@ struct CommandBarPreviewPanel: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Content: \(content.title)")
+                .accessibilityValue("Type: \(content.sourceType.rawValue)")
 
                 Divider()
 
@@ -32,6 +35,8 @@ struct CommandBarPreviewPanel: View {
                                 Text(l0)
                                     .font(.body)
                             }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("Summary: \(l0)")
                         }
 
                         if let outline = content.l1Outline, !outline.isEmpty {
@@ -44,9 +49,13 @@ struct CommandBarPreviewPanel: View {
                                         .font(.caption)
                                 }
                             }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("Outline with \(min(outline.count, 5)) points")
                         }
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Content preview")
 
                 Divider()
 
@@ -56,11 +65,13 @@ struct CommandBarPreviewPanel: View {
                         // Action handled by parent
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Import content")
 
                     Button("Share") {
                         // Action handled by parent
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Share content")
                 }
             } else {
                 ContentUnavailableView(
@@ -68,11 +79,15 @@ struct CommandBarPreviewPanel: View {
                     systemImage: "doc.text",
                     description: Text("Select a result to see preview")
                 )
+                .accessibilityLabel("No preview available")
+                .accessibilityHint("Select a result to see preview")
             }
         }
         .padding()
         .frame(width: 300)
         .background(.ultraThinMaterial)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Preview panel")
     }
 }
 

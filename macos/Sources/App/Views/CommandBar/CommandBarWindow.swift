@@ -24,6 +24,7 @@ private struct SimpleMockProvider: AIProviderProtocol {
 
 struct CommandBarWindow: View {
     @Environment(AICoordinator.self) private var coordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query: String = ""
     @State private var service: CommandBarService!
 
@@ -51,6 +52,8 @@ struct CommandBarWindow: View {
                         )
                     }
                     .frame(maxHeight: 400)
+                    .accessibilityLabel("Search results")
+                    .accessibilityHint("\(coordinator.commandResults.count) results available")
                     .overlay {
                         if coordinator.isLoading {
                             Color.black.opacity(0.2)
@@ -58,11 +61,14 @@ struct CommandBarWindow: View {
                                     ProgressView()
                                         .controlSize(.large)
                                         .scaleEffect(1.2)
+                                        .accessibilityLabel("Loading results")
                                 }
                         }
                     }
                 }
                 .frame(width: 600)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Command Bar")
 
                 // Preview panel (shows on Tab or when content selected)
                 if coordinator.showPreviewPanel {
@@ -84,6 +90,8 @@ struct CommandBarWindow: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Command Bar Window")
         .onKeyPress(.upArrow) {
             coordinator.selectPreviousResult()
             return .handled
@@ -106,6 +114,7 @@ struct CommandBarWindow: View {
             coordinator.showPreviewPanel.toggle()
             return .handled
         }
+        .accessibilityHint("Press Escape to close, up and down arrows to navigate, Enter to execute, Tab to toggle preview")
         .onAppear {
             service = CommandBarService(aiCoordinator: coordinator)
             service.search("")  // Show quick actions
@@ -125,10 +134,10 @@ struct CommandBarWindow: View {
         .cornerRadius(16)
         .shadow(radius: 40, x: 0, y: 20)
         .opacity(coordinator.isCommandBarVisible ? 1 : 0)
-        .scaleEffect(coordinator.isCommandBarVisible ? 1.0 : 0.9)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.isCommandBarVisible)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.showPreviewPanel)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.errorMessage)
+        .scaleEffect(coordinator.isCommandBarVisible ? 1.0 : (reduceMotion ? 1.0 : 0.9))
+        .animation(reduceMotion ? .none : .spring(response: 0.3, dampingFraction: 0.8), value: coordinator.isCommandBarVisible)
+        .animation(reduceMotion ? .none : .spring(response: 0.3, dampingFraction: 0.8), value: coordinator.showPreviewPanel)
+        .animation(reduceMotion ? .none : .spring(response: 0.3, dampingFraction: 0.8), value: coordinator.errorMessage)
     }
 
     private func handleInput(_ input: CommandBarInput) async {
@@ -167,12 +176,37 @@ struct ErrorBanner: View {
     @State private var autoDismissTask: Task<Void, Never>?
 
     var body: some View {
+        let errorText = friendlyMessage(for: message)
+
+        return errorBannerContent(errorText: errorText)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Error")
+            .accessibilityValue(errorText)
+            .onAppear {
+                // Auto-dismiss after 5 seconds
+                autoDismissTask = Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    if !Task.isCancelled {
+                        await MainActor.run {
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+            .onDisappear {
+                autoDismissTask?.cancel()
+            }
+    }
+
+    @ViewBuilder
+    private func errorBannerContent(errorText: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.system(size: 16))
+                .accessibilityHidden(true)
 
-            Text(friendlyMessage(for: message))
+            Text(errorText)
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
@@ -189,6 +223,7 @@ struct ErrorBanner: View {
             }
             .buttonStyle(.plain)
             .help("Dismiss")
+            .accessibilityLabel("Dismiss error")
         }
         .padding(12)
         .background(Color.orange.opacity(0.15))
@@ -199,20 +234,6 @@ struct ErrorBanner: View {
         .cornerRadius(8)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
-        .onAppear {
-            // Auto-dismiss after 5 seconds
-            autoDismissTask = Task {
-                try? await Task.sleep(for: .seconds(5))
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        onDismiss()
-                    }
-                }
-            }
-        }
-        .onDisappear {
-            autoDismissTask?.cancel()
-        }
     }
 
     private func friendlyMessage(for error: String) -> String {

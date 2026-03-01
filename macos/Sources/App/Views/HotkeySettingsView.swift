@@ -15,6 +15,17 @@ struct HotkeySettingsView: View {
                     .help("Open floating search/import panel")
             }
 
+            Section("Command Bar (⌘K)") {
+                Text("⌘K — Open Command Bar")
+                Text("↑ / ↓ — Navigate results")
+                Text("Enter — Execute selected command")
+                Text("Tab — Toggle preview panel")
+                Text("Esc — Close Command Bar")
+                Text("Drag & Drop — Files, images, PDFs")
+            }
+            .foregroundStyle(.secondary)
+            .font(.system(.body, design: .monospaced))
+
             Section("In-App Navigation") {
                 Text("J / K — Navigate outline points")
                 Text("Enter — Expand focused point (L2)")

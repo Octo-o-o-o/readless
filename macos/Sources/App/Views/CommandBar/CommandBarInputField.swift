@@ -14,6 +14,7 @@ struct CommandBarInputField: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .font(.title3)
+                .accessibilityHidden(true)
 
             TextField("Type to search or paste URL...", text: $query)
                 .textFieldStyle(.plain)
@@ -25,6 +26,8 @@ struct CommandBarInputField: View {
                         isFocused = true
                     }
                 }
+                .accessibilityLabel("Command search field")
+                .accessibilityHint("Type to search, paste URLs, or drag files here")
         }
         .padding()
         .background(
@@ -45,6 +48,10 @@ struct CommandBarInputField: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, style: StrokeStyle(lineWidth: 2, dash: [5, 5]))
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Search input")
+        .accessibilityValue(query.isEmpty ? "Empty" : query)
+        .accessibilityHint(isDropTargeted ? "Drop zone active" : "Type to search or drag files")
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) {
