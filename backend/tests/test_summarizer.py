@@ -161,3 +161,131 @@ class TestSummarizationHelpers:
     def test_strip_code_fences_with_whitespace(self) -> None:
         raw = '  ```json\n{"a": 1}\n```  '
         assert SummarizationService._strip_code_fences(raw) == '{"a": 1}'
+
+
+# ------------------------------------------------------------------ #
+#  AI Tag Selection Tests
+# ------------------------------------------------------------------ #
+
+
+class MockResponse:
+    """Mock OpenAI API response."""
+
+    def __init__(self, content_dict):
+        import json
+
+        self.choices = [
+            type(
+                "obj",
+                (object,),
+                {
+                    "message": type(
+                        "obj",
+                        (object,),
+                        {"content": json.dumps(content_dict)},
+                    )()
+                },
+            )()
+        ]
+
+
+@pytest.fixture(autouse=True)
+def reset_summarizer_singleton():
+    """Reset the summarizer singleton between tests."""
+    import app.services.summarizer as summarizer_module
+
+    summarizer_module._service = None
+    yield
+    summarizer_module._service = None
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_with_user_tags(db_session):
+    """Test that summary generation includes user's tag library in prompt."""
+    from app.services.summarizer import _get_summarizer, SummarizationService
+    from app.models.user_tag import UserTag
+
+    # Create user tags
+    tag1 = UserTag(user_id="test_user", tag_name="技术")
+    tag2 = UserTag(user_id="test_user", tag_name="学习")
+    tag3 = UserTag(user_id="test_user", tag_name="投资")
+    db_session.add_all([tag1, tag2, tag3])
+    await db_session.commit()
+
+    # Mock OpenAI response
+    from unittest.mock import AsyncMock, patch
+
+    mock_response = {
+        "l0_summary": "Test summary",
+        "l1_outline": [{"point": "Point 1", "anchors": ["¶1"]}],
+        "tags": ["技术", "学习"],
+        "keywords": ["test", "keyword"],
+    }
+
+    with patch("app.services.summarizer.openai") as mock_openai:
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MockResponse(mock_response)
+        )
+        mock_openai.AsyncOpenAI.return_value = mock_client
+
+        summarizer = _get_summarizer()
+        result = await summarizer.generate_summary(
+            full_text="Test content about technology and learning",
+            paragraphs=["Paragraph 1", "Paragraph 2"],
+            user_id="test_user",
+            db=db_session,
+        )
+
+        # Verify tags are returned
+        assert result.tags == ["技术", "学习"]
+
+        # Verify prompt included user's tags
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        system_message = messages[0]["content"]
+
+        assert "技术" in system_message
+        assert "学习" in system_message
+        assert "投资" in system_message
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_with_no_user_tags(db_session):
+    """Test summary generation when user has no tags."""
+    from app.services.summarizer import _get_summarizer
+    from unittest.mock import AsyncMock, patch
+
+    mock_response = {
+        "l0_summary": "Test summary",
+        "l1_outline": [{"point": "Point 1", "anchors": ["¶1"]}],
+        "tags": [],
+        "keywords": ["test"],
+    }
+
+    with patch("app.services.summarizer.openai") as mock_openai:
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=MockResponse(mock_response)
+        )
+        mock_openai.AsyncOpenAI.return_value = mock_client
+
+        summarizer = _get_summarizer()
+        result = await summarizer.generate_summary(
+            full_text="Test content",
+            paragraphs=["Paragraph 1"],
+            user_id="test_user",
+            db=db_session,
+        )
+
+        # Should return empty tags array
+        assert result.tags == []
+
+        # Verify prompt mentions empty tag library
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        system_message = messages[0]["content"]
+
+        assert (
+            "Empty array" in system_message or "no tags" in system_message.lower()
+        )

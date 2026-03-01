@@ -7,6 +7,8 @@ import logging
 import re
 
 import openai
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.schemas.summary import ContentSummary, OutlinePoint
@@ -198,3 +200,102 @@ class SummarizationService:
         )
 
         return message.choices[0].message.content or ""
+
+    # ------------------------------------------------------------------ #
+    #  Generate Summary with AI Tag Selection
+    # ------------------------------------------------------------------ #
+
+    async def generate_summary(
+        self,
+        full_text: str,
+        paragraphs: list[str],
+        user_id: str,
+        db: AsyncSession,
+    ) -> ContentSummary:
+        """Generate multi-level summary with AI tag selection from user's library."""
+
+        # 1. Fetch user's tag library
+        from app.models.user_tag import UserTag
+
+        stmt = select(UserTag.tag_name).where(
+            UserTag.user_id == user_id,
+            UserTag.deleted_at.is_(None),
+        )
+        result = await db.execute(stmt)
+        available_tags = [row[0] for row in result.all()]
+
+        # 2. Build tag instruction based on user's library
+        if available_tags:
+            tag_instruction = f"""- "tags": Select 0-3 most relevant tags from the user's tag library: {available_tags}
+  If none of the tags are relevant, return an empty array."""
+        else:
+            tag_instruction = """- "tags": Empty array (user has no tags in their library yet)."""
+
+        # 3. Build numbered paragraphs for anchoring
+        numbered_paragraphs = [f"¶{i+1}: {p}" for i, p in enumerate(paragraphs)]
+        user_message = "\n\n".join(numbered_paragraphs)
+
+        # Detect language
+        has_chinese = any("\u4e00" <= c <= "\u9fff" for c in full_text[:500])
+        lang_note = "Chinese" if has_chinese else "English"
+
+        # 4. Build system prompt with tag instruction
+        system_prompt = f"""You are a professional content analyst. Generate a multi-level summary in {lang_note}.
+
+Return a JSON object with:
+- "l0_summary": one-line summary (≤30 Chinese chars or ≤60 English chars).
+- "l1_outline": an array of 3-5 objects, each with:
+   - "point": a concise statement of the key idea.
+   - "anchors": an array of source paragraph markers (e.g. ["¶1", "¶3"]).
+{tag_instruction}
+- "keywords": 5-10 keywords.
+
+Return ONLY the JSON object. No markdown, no code blocks."""
+
+        # 5. Call OpenAI API
+        response = await self.client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0.3,
+        )
+
+        # 6. Parse response
+        raw = response.choices[0].message.content
+        if not raw:
+            raise ValueError("OpenAI returned empty content for summarization")
+
+        # Remove markdown code fences if present
+        cleaned = self._strip_code_fences(raw.strip())
+
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse AI response as JSON: {cleaned}") from e
+
+        return ContentSummary(
+            l0_summary=data["l0_summary"],
+            l1_outline=[
+                OutlinePoint(point=item["point"], anchors=item["anchors"])
+                for item in data["l1_outline"]
+            ],
+            tags=data["tags"],
+            keywords=data["keywords"],
+        )
+
+
+# ------------------------------------------------------------------ #
+#  Singleton
+# ------------------------------------------------------------------ #
+
+_service: SummarizationService | None = None
+
+
+def _get_summarizer() -> SummarizationService:
+    """Get or create the singleton SummarizationService instance."""
+    global _service
+    if _service is None:
+        _service = SummarizationService()
+    return _service
