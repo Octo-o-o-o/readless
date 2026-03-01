@@ -1,7 +1,11 @@
 import Foundation
 
-public struct AIServiceConfig: Codable, Sendable {
-    public struct StepConfig: Codable, Sendable {
+public struct AIServiceConfig: Codable, Sendable, Equatable {
+    public struct StepConfig: Codable, Sendable, Equatable {
+        // M1: Extract magic strings to static constants
+        private static let reasoningPrefixes = ["o1-", "o3-"]
+        private static let reasoningModels = ["deepseek-reasoner"]
+
         public let providerName: String
         public let baseURL: String
         public let model: String
@@ -9,8 +13,9 @@ public struct AIServiceConfig: Codable, Sendable {
         public let maxTokens: Int
 
         public var isReasoningModel: Bool {
-            let reasoningPrefixes = ["o1-", "o3-", "deepseek-reasoner"]
-            return reasoningPrefixes.contains { model.hasPrefix($0) }
+            // I1: Fix reasoning model detection logic
+            return Self.reasoningPrefixes.contains { model.hasPrefix($0) } ||
+                   Self.reasoningModels.contains(model)
         }
 
         public init(
@@ -20,6 +25,14 @@ public struct AIServiceConfig: Codable, Sendable {
             temperature: Double?,
             maxTokens: Int
         ) {
+            // I2: Add input validation
+            assert(!providerName.isEmpty, "Provider name cannot be empty")
+            assert(!model.isEmpty, "Model name cannot be empty")
+            assert(maxTokens > 0, "Max tokens must be positive")
+            if let temp = temperature {
+                assert(temp >= 0.0 && temp <= 2.0, "Temperature must be between 0.0 and 2.0")
+            }
+
             self.providerName = providerName
             self.baseURL = baseURL
             self.model = model
