@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Readless Backend 一键部署脚本"
+echo "🚀 Readless Backend 生产环境部署脚本"
 echo "================================"
 
 # 颜色定义
@@ -22,9 +22,15 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
+if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
     echo -e "${RED}❌ Docker Compose未安装，请先安装Docker Compose${NC}"
     exit 1
+fi
+
+# 使用docker compose或docker-compose
+DOCKER_COMPOSE="docker-compose"
+if ! command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
 fi
 
 echo -e "${GREEN}✅ 环境检查通过${NC}"
@@ -44,45 +50,63 @@ if [ ! -f ".env" ]; then
     fi
 fi
 
+# 检查生产环境配置文件
+if [ ! -f "docker-compose.prod.yml" ]; then
+    echo -e "${RED}❌ docker-compose.prod.yml 不存在${NC}"
+    exit 1
+fi
+
 echo "📦 步骤1: 构建Docker镜像..."
-docker-compose build
+$DOCKER_COMPOSE -f docker-compose.prod.yml build --no-cache
 
 echo ""
 echo "🗄️  步骤2: 启动数据库..."
-docker-compose up -d db
+$DOCKER_COMPOSE -f docker-compose.prod.yml up -d db
 
 echo ""
 echo "⏳ 等待数据库就绪..."
-sleep 10
+sleep 15
 
 echo ""
 echo "🔧 步骤3: 运行数据库迁移..."
 if [ -d "alembic" ]; then
-    docker-compose run --rm api alembic upgrade head
+    $DOCKER_COMPOSE -f docker-compose.prod.yml exec -T api alembic upgrade head || \
+    $DOCKER_COMPOSE -f docker-compose.prod.yml run --rm api alembic upgrade head
 else
     echo -e "${YELLOW}⚠️  Alembic未初始化，跳过迁移${NC}"
 fi
 
 echo ""
 echo "🚀 步骤4: 启动API服务..."
-docker-compose up -d api
+$DOCKER_COMPOSE -f docker-compose.prod.yml up -d api
 
 echo ""
 echo "⏳ 等待API服务启动..."
-sleep 5
+sleep 10
 
 echo ""
 echo "🔍 步骤5: 健康检查..."
-if curl -s http://127.0.0.1:8001/health | grep -q "ok"; then
-    echo -e "${GREEN}✅ API服务启动成功！${NC}"
-else
-    echo -e "${RED}❌ API服务启动失败，查看日志：docker-compose logs api${NC}"
-    exit 1
-fi
+MAX_RETRIES=10
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -sf http://127.0.0.1:8001/health | grep -q "ok"; then
+        echo -e "${GREEN}✅ API服务启动成功！${NC}"
+        break
+    else
+        RETRY_COUNT=$((RETRY_COUNT+1))
+        if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo -e "${RED}❌ API服务启动失败，查看日志：$DOCKER_COMPOSE -f docker-compose.prod.yml logs api${NC}"
+            $DOCKER_COMPOSE -f docker-compose.prod.yml logs --tail=50 api
+            exit 1
+        fi
+        echo "等待API启动... ($RETRY_COUNT/$MAX_RETRIES)"
+        sleep 3
+    fi
+done
 
 echo ""
 echo "📊 容器状态："
-docker-compose ps
+$DOCKER_COMPOSE -f docker-compose.prod.yml ps
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -90,13 +114,13 @@ echo -e "${GREEN}🎉 部署完成！${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "📝 下一步："
-echo "  1. 配置nginx反向代理（参考 docs/deployment-guide.md）"
-echo "  2. 申请SSL证书: certbot certonly --nginx -d readless.cc"
-echo "  3. 测试API: curl https://readless.cc/health"
+echo "  1. 测试本地API: curl http://127.0.0.1:8001/health"
+echo "  2. 测试HTTPS: curl https://readless.cc/health"
+echo "  3. 查看API文档: https://readless.cc/docs"
 echo ""
 echo "🔧 常用命令："
-echo "  查看日志: docker-compose logs -f"
-echo "  重启服务: docker-compose restart"
-echo "  停止服务: docker-compose down"
-echo "  备份数据: docker-compose exec db pg_dump -U readless readless > backup.sql"
+echo "  查看日志: $DOCKER_COMPOSE -f docker-compose.prod.yml logs -f"
+echo "  重启服务: $DOCKER_COMPOSE -f docker-compose.prod.yml restart"
+echo "  停止服务: $DOCKER_COMPOSE -f docker-compose.prod.yml down"
+echo "  备份数据: $DOCKER_COMPOSE -f docker-compose.prod.yml exec db pg_dump -U readless readless > backup.sql"
 echo ""
