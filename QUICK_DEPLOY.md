@@ -1,5 +1,43 @@
 # Readless 后端快速部署（5分钟上线）
 
+## 🎉 当前生产环境
+
+**已部署服务器**: https://readless.cc
+**服务器**: root@172.245.55.158 (SSH端口: 52941)
+**部署状态**: ✅ 运行中（2026-03-01部署）
+**健康检查**: https://readless.cc/health
+
+### 本地开发使用生产后端（无需部署）
+
+**最简单的方式**: 本地开发直接使用生产服务器
+
+```bash
+# 配置 macOS 客户端
+cd /Users/wangyixiao/WorkSpace/readless/macos
+./configure-backend.sh https://readless.cc
+
+# 运行 App
+swift run
+
+# 开始使用
+# ⌘K 打开 Command Bar，粘贴内容，按 Enter 导入
+```
+
+**优点**:
+- ✅ 零配置，立即可用
+- ✅ 无需本地 PostgreSQL、Docker 等依赖
+- ✅ 与生产环境完全一致
+- ✅ 多设备数据同步
+
+**何时需要重新部署**:
+- 后端代码有更新
+- 需要测试新功能
+- 生产服务器维护
+
+---
+
+## 🚀 重新部署到生产服务器
+
 如果你想快速将 Readless 后端部署到服务器进行测试，跟随这个最简化的步骤。
 
 ## 方案 A: Railway（最快，推荐新手）

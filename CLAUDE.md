@@ -6,9 +6,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Readless is an AI-powered macOS desktop app that ingests long-form content (articles, PDFs, text, images) and generates multi-level traceable summaries and AI podcasts. It consists of a native Swift/SwiftUI macOS client and a Python FastAPI backend.
 
+## Production Environment
+
+**Backend Server**: https://readless.cc
+**Server**: root@172.245.55.158 (SSH port: 52941)
+**Status**: ✅ Running in production (deployed 2026-03-01)
+
+### Server Architecture
+- Docker Compose with PostgreSQL 17 + FastAPI
+- Nginx reverse proxy with Cloudflare Origin Certificate
+- API: `127.0.0.1:8001` (internal) → `https://readless.cc` (public)
+- Database: `127.0.0.1:5433` (internal PostgreSQL)
+
+### Quick Health Check
+```bash
+curl https://readless.cc/health     # Should return {"status":"ok"}
+curl https://readless.cc/docs       # API documentation
+```
+
 ## Build & Run Commands
 
 ### Backend (Python/FastAPI)
+
+#### Option 1: Use Production Server (Recommended)
+Both development and production builds of the macOS app can connect to the production server. **No local backend needed**.
+
+```bash
+# Configure macOS app to use production
+cd macos
+./configure-backend.sh https://readless.cc
+
+# Or manually
+defaults write com.readless.app apiBaseURL "https://readless.cc"
+
+# Verify configuration
+defaults read com.readless.app apiBaseURL
+```
+
+#### Option 2: Run Local Backend (Optional)
+Only needed for backend development or offline testing.
 
 ```bash
 cd backend
@@ -16,6 +52,9 @@ pip install -e ".[dev]"               # Install dependencies
 uvicorn app.main:app --reload          # Run dev server (http://localhost:8000)
 docker-compose up -d --build           # Run with Docker (includes PostgreSQL)
 docker-compose exec api alembic upgrade head  # Run DB migrations
+
+# Configure macOS app to use localhost
+defaults delete com.readless.app apiBaseURL  # Use default localhost:8000
 ```
 
 ### Backend Tests & Linting
@@ -36,7 +75,35 @@ swift build                            # Build
 swift build -c release                 # Release build
 swift run App                          # Run
 swift test                             # Run tests
+
+# The app will automatically use the configured backend:
+# - If apiBaseURL is set: uses that URL (e.g., https://readless.cc)
+# - If not set: defaults to http://localhost:8000
 ```
+
+### Production Deployment
+
+```bash
+# Deploy to production server
+cd /Users/wangyixiao/WorkSpace/readless
+
+# 1. Package backend
+tar --exclude='backend/venv' --exclude='backend/__pycache__' \
+    -czf readless-backend.tar.gz backend/
+
+# 2. Upload to server
+scp -P 52941 readless-backend.tar.gz root@172.245.55.158:/root/
+
+# 3. SSH and deploy
+ssh -p 52941 root@172.245.55.158
+cd /root && tar -xzf readless-backend.tar.gz
+cd backend && bash deploy.sh
+
+# 4. Verify deployment
+curl https://readless.cc/health
+```
+
+See [DEPLOYMENT-RESULT.md](DEPLOYMENT-RESULT.md) for complete deployment documentation.
 
 ## Architecture
 
@@ -70,6 +137,9 @@ SPM multi-target layout with explicit dependency graph:
 
 - **`Core/`** — Domain models (`Content`, `OutlinePoint`), enums — zero dependencies
 - **`Networking/`** — `APIClient` for backend HTTP calls — depends on Core
+  - `APIClient.swift` — Configurable backend URL via UserDefaults (`apiBaseURL`)
+  - Reads from `defaults read com.readless.app apiBaseURL`
+  - Falls back to `http://localhost:8000` if not configured
 - **`Storage/`** — GRDB SQLite local cache — depends on Core
 - **`UI/`** — Reusable SwiftUI components (Theme, FloatingPanel) — depends on Core
 - **`App/`** — Main executable — depends on all above
@@ -77,8 +147,38 @@ SPM multi-target layout with explicit dependency graph:
   - `Services/TextCaptureService.swift` — Captures text from foreground macOS apps
   - `Services/HotkeyService.swift` — Global keyboard shortcuts (KeyboardShortcuts package)
   - `Services/FolderWatchService.swift` — FSEvents folder monitoring
+  - `Services/CommandBarService.swift` — Command Bar input processing and content import
   - `Views/ReaderView.swift` — Main summary display with keyboard navigation (j/k, Enter)
   - `ViewModels/` — MVVM view models using `@Observable`
+
+### macOS Client Backend Configuration
+
+The macOS app uses UserDefaults to determine which backend to connect to:
+
+```swift
+// APIClient automatically reads from UserDefaults
+private static func getConfiguredBaseURL() -> URL {
+    if let urlString = UserDefaults.standard.string(forKey: "apiBaseURL"),
+       let url = URL(string: urlString) {
+        print("[Readless] Using configured API base URL: \(urlString)")
+        return url
+    }
+    // Fallback to localhost for development
+    return URL(string: "http://localhost:8000")!
+}
+```
+
+**Configuration Commands:**
+```bash
+# Use production server (recommended)
+defaults write com.readless.app apiBaseURL "https://readless.cc"
+
+# Use local server
+defaults delete com.readless.app apiBaseURL
+
+# Check current configuration
+defaults read com.readless.app apiBaseURL
+```
 
 ### Key Data Flow
 
@@ -114,3 +214,149 @@ User action (hotkey/paste) → TextCaptureService → ContentManager → APIClie
 - Content may be in Chinese or English. Summaries respect source language.
 - L0 summary limit: ≤30 Chinese characters or ≤60 English characters.
 - OCR supports Chinese + English via Tesseract (`chi_sim+eng`).
+
+## Production Server Management
+
+### Server Access
+```bash
+# SSH to production server
+ssh -p 52941 root@172.245.55.158
+
+# Navigate to backend directory
+cd /root/backend
+```
+
+### Common Operations
+
+**View Logs:**
+```bash
+# Real-time logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Last 50 lines of API logs
+docker compose -f docker-compose.prod.yml logs --tail=50 api
+
+# Last 50 lines of DB logs
+docker compose -f docker-compose.prod.yml logs --tail=50 db
+```
+
+**Restart Services:**
+```bash
+# Restart API only
+docker compose -f docker-compose.prod.yml restart api
+
+# Restart all services
+docker compose -f docker-compose.prod.yml restart
+
+# Stop all services
+docker compose -f docker-compose.prod.yml down
+
+# Start all services
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Check Status:**
+```bash
+# Container status
+docker compose -f docker-compose.prod.yml ps
+
+# Health check
+curl http://127.0.0.1:8001/health
+
+# Public health check
+curl https://readless.cc/health
+```
+
+**Database Backup:**
+```bash
+# Create backup
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_dump -U readless readless | gzip > backup_$(date +%Y%m%d).sql.gz
+
+# Restore backup
+gunzip < backup_20260301.sql.gz | \
+  docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U readless readless
+```
+
+**Update Deployment:**
+```bash
+# 1. On local machine: package and upload
+cd /Users/wangyixiao/WorkSpace/readless
+tar --exclude='backend/venv' --exclude='backend/__pycache__' \
+    -czf readless-backend.tar.gz backend/
+scp -P 52941 readless-backend.tar.gz root@172.245.55.158:/root/
+
+# 2. On server: extract and redeploy
+ssh -p 52941 root@172.245.55.158
+cd /root && tar -xzf readless-backend.tar.gz
+cd backend
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 3. Verify
+curl https://readless.cc/health
+```
+
+### Deployment Files
+
+- **`backend/docker-compose.prod.yml`** — Production Docker Compose configuration
+  - API port: `127.0.0.1:8001:8000` (localhost only)
+  - DB port: `127.0.0.1:5433:5432` (localhost only, avoids port conflicts)
+  - Uses separate `readless` network
+  - Includes health checks
+
+- **`backend/deploy.sh`** — Automated deployment script
+  - Builds Docker images
+  - Starts database and waits for health
+  - Runs migrations (if Alembic configured)
+  - Starts API service
+  - Verifies health endpoint
+
+- **`backend/setup-nginx-cloudflare.sh`** — Nginx + Cloudflare SSL setup
+  - Configures Cloudflare Origin Certificate
+  - Sets up nginx reverse proxy
+  - Configures real IP from Cloudflare
+  - Enables HTTPS with HTTP redirect
+
+### Environment Variables
+
+Production environment variables are in `/root/backend/.env`:
+
+```env
+# Database (Docker internal network)
+DATABASE_URL=postgresql+asyncpg://readless:readless@db:5432/readless
+POSTGRES_PASSWORD=<strong-password>
+
+# OpenAI API (using SiliconFlow)
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=https://api.siliconflow.cn/v1
+OPENAI_MODEL=Pro/MiniMaxAI/MiniMax-M2.5
+
+# Clerk Authentication
+CLERK_SECRET_KEY=sk_test_...
+
+# Cloudflare R2 Storage
+R2_ENDPOINT=https://....r2.cloudflarestorage.com
+R2_ACCESS_KEY=...
+R2_SECRET_KEY=...
+R2_BUCKET=readless
+
+# ElevenLabs TTS
+ELEVENLABS_API_KEY=sk_...
+
+# CORS Configuration
+CORS_ORIGINS=["https://readless.cc","http://localhost:3000"]
+
+# Domain
+DOMAIN=readless.cc
+```
+
+### Deployment Documentation
+
+- **[DEPLOYMENT-RESULT.md](DEPLOYMENT-RESULT.md)** — Latest deployment report (2026-03-01)
+- **[DEPLOYMENT-VERIFICATION.md](DEPLOYMENT-VERIFICATION.md)** — Configuration verification guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — General deployment guide (Railway, VPS, etc.)
+- **[QUICK_DEPLOY.md](QUICK_DEPLOY.md)** — 5-minute quick deployment guide
+- **[DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)** — Step-by-step deployment checklist
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — Common issues and solutions

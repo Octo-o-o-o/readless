@@ -1,5 +1,41 @@
 # Readless 后端部署指南
 
+## 🚀 生产环境信息
+
+**当前生产服务器**: https://readless.cc
+**服务器**: root@172.245.55.158 (SSH端口: 52941)
+**部署状态**: ✅ 已部署并运行（2026-03-01）
+**健康检查**: https://readless.cc/health
+
+### 本地开发建议
+
+**推荐做法**: 本地开发直接连接生产服务器，无需运行本地后端。
+
+```bash
+# 配置 macOS 客户端使用生产服务器
+cd macos
+./configure-backend.sh https://readless.cc
+
+# 或手动配置
+defaults write com.readless.app apiBaseURL "https://readless.cc"
+
+# 运行 App（自动连接到生产服务器）
+swift run
+```
+
+**优点**:
+- ✅ 无需本地安装 PostgreSQL、Redis 等依赖
+- ✅ 与生产环境完全一致的API和数据
+- ✅ 节省本地资源
+- ✅ 多设备开发数据同步
+
+**何时需要本地后端**:
+- 后端功能开发和调试
+- 无网络环境下的开发
+- 需要修改后端代码并测试
+
+---
+
 ## 部署方式选择
 
 ### 方式 1: Docker Compose（推荐）
