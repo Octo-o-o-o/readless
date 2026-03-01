@@ -24,12 +24,27 @@ public final class APIClient: @unchecked Sendable {
     public var authToken: String?
     private let session: URLSession
 
+    /// Get the configured API base URL from UserDefaults or use default localhost
+    private static func getConfiguredBaseURL() -> URL {
+        // Try to read from UserDefaults first
+        if let urlString = UserDefaults.standard.string(forKey: "apiBaseURL"),
+           let url = URL(string: urlString) {
+            print("[Readless] Using configured API base URL: \(urlString)")
+            return url
+        }
+
+        // Fallback to localhost for development
+        let defaultURL = URL(string: "http://localhost:8000")!
+        print("[Readless] Using default API base URL: \(defaultURL.absoluteString)")
+        return defaultURL
+    }
+
     public init(
-        baseURL: URL = URL(string: "http://localhost:8000")!,
+        baseURL: URL? = nil,
         authToken: String? = nil,
         session: URLSession = .shared
     ) {
-        self.baseURL = baseURL
+        self.baseURL = baseURL ?? Self.getConfiguredBaseURL()
         self.authToken = authToken
         self.session = session
     }

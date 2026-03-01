@@ -1,5 +1,69 @@
 # Command Bar 问题修复指南
 
+## 🚀 部署到服务器（推荐用于稳定测试）
+
+如果你不想每次都在本地启动后端，可以将后端部署到远程服务器。
+
+### 快速部署步骤
+
+1. **选择部署方式**（详见 [DEPLOYMENT.md](DEPLOYMENT.md)）：
+   - Railway.app（最简单，推荐新手）
+   - Docker Compose on VPS（生产环境推荐）
+   - Render / Fly.io（免费选项）
+
+2. **部署后端**（以 Docker Compose 为例）：
+
+```bash
+# 在服务器上
+git clone https://github.com/你的用户名/readless.git
+cd readless/backend
+
+# 启动服务（包含 PostgreSQL + API + Caddy HTTPS）
+sudo docker compose up -d --build
+
+# 运行数据库迁移
+sudo docker compose exec api alembic upgrade head
+
+# 验证
+curl https://你的域名/health
+```
+
+3. **配置 macOS 客户端连接到服务器**：
+
+```bash
+# 方法 1: 使用配置脚本（推荐）
+cd macos
+./configure-backend.sh https://api.readless.cc
+
+# 方法 2: 手动设置
+defaults write com.readless.app apiBaseURL "https://api.readless.cc"
+
+# 验证配置
+defaults read com.readless.app apiBaseURL
+```
+
+4. **重启 macOS App**：
+   - 完全退出 App（⌘Q）
+   - 重新运行 `swift run` 或在 Xcode 中运行
+   - 查看日志应显示：`[Readless] Using configured API base URL: https://api.readless.cc`
+
+5. **测试导入功能**：
+   - ⌘K 打开 Command Bar
+   - 粘贴长文本
+   - 按 Enter 导入
+   - 应该成功（不再报错 `error 0`）
+
+### 恢复本地开发
+
+```bash
+# 删除服务器配置，恢复使用 localhost
+defaults delete com.readless.app apiBaseURL
+
+# 重启 App，会自动使用 http://localhost:8000
+```
+
+---
+
 ## 你遇到的4个问题及解决方案
 
 ### ✅ 问题1: ⌘K 后窗口没有激活到前台

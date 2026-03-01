@@ -12,8 +12,9 @@ echo ""
 
 # 检查虚拟环境
 if [ ! -d "venv" ]; then
-    echo "⚙️  Creating virtual environment..."
-    python3 -m venv venv
+    echo "⚙️  Creating virtual environment with Python 3.12..."
+    # 使用 Python 3.12+ (系统已安装)
+    python3.12 -m venv venv
 fi
 
 # 激活虚拟环境
