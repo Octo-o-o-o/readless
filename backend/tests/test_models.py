@@ -40,7 +40,6 @@ class TestContentModel:
             "channel",
             "l0_summary",
             "l1_outline",
-            "tags",
             "keywords",
             "full_text",
             "full_text_tsv",
@@ -48,6 +47,7 @@ class TestContentModel:
             "user_id",
             "created_at",
             "updated_at",
+            "source_language",
         }
         assert expected.issubset(cols), f"Missing columns: {expected - cols}"
 
@@ -59,7 +59,6 @@ class TestContentModel:
     def test_indexes_exist(self):
         index_names = _table_indexes(Content)
         assert "ix_contents_full_text_tsv" in index_names
-        assert "ix_contents_tags" in index_names
         assert "ix_contents_keywords" in index_names
         assert "ix_contents_l1_outline" in index_names
         assert "ix_contents_user_created" in index_names

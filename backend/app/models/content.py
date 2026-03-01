@@ -38,9 +38,6 @@ class Content(Base):
     l1_outline: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Classification
-    tags: Mapped[list[str] | None] = mapped_column(
-        ARRAY(String), nullable=True
-    )
     keywords: Mapped[list[str] | None] = mapped_column(
         ARRAY(String), nullable=True
     )
@@ -75,7 +72,6 @@ class Content(Base):
 
     __table_args__ = (
         Index("ix_contents_full_text_tsv", "full_text_tsv", postgresql_using="gin"),
-        Index("ix_contents_tags", "tags", postgresql_using="gin"),
         Index("ix_contents_keywords", "keywords", postgresql_using="gin"),
         Index("ix_contents_l1_outline", "l1_outline", postgresql_using="gin"),
         Index("ix_contents_user_created", "user_id", "created_at"),
