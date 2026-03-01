@@ -199,6 +199,76 @@ User action (hotkey/paste) → TextCaptureService → ContentManager → APIClie
 - **All DB operations** are async (`AsyncSession`) — never use sync SQLAlchemy calls
 - **All backend tests** are designed to run without database, API keys, or network access
 
+## User Tag System
+
+The User Tag System allows users to organize and filter content using custom tags. Tags are AI-selected during summarization and can be managed manually.
+
+### Architecture
+
+**Database Schema:**
+- `user_tags` - User's tag library (id, user_id, tag_name, content_count, created_at, updated_at, deleted_at)
+- `content_tags` - Many-to-many relationships between content and tags (content_id, tag_id, user_id)
+- Soft deletion: Tags are marked deleted (deleted_at) rather than hard-deleted
+- Composite primary key: (content_id, tag_id) for content_tags
+
+**Backend Flow:**
+1. **Summarization** (`backend/app/services/summarizer.py`):
+   - Fetches user's tag library from database
+   - Includes available tags in AI prompt
+   - AI selects 0-3 relevant tags from library
+   - Validates AI-selected tags are from user's library
+
+2. **Pipeline** (`backend/app/services/pipeline.py`):
+   - Saves AI-selected tags to `content_tags` table
+   - Batch-optimized tag lookup (no N+1 queries)
+   - Logs when AI-selected tags aren't in library
+
+3. **API Endpoints** (`backend/app/routers/tags.py`):
+   - `GET /api/v1/tags` - List user's tags
+   - `POST /api/v1/tags` - Create tag
+   - `DELETE /api/v1/tags/{id}` - Soft-delete tag
+   - `GET /api/v1/tags/content/{id}/tags` - Get content's tags
+   - `PUT /api/v1/tags/content/{id}/tags` - Update content's tags
+   - `GET /api/v1/tags/{id}/contents` - Filter content by tag
+
+4. **Content Router** (`backend/app/routers/content.py`):
+   - Returns tags via JOIN query (excludes soft-deleted)
+   - Batch-fetches all tags in single query (optimized)
+
+**macOS Frontend:**
+- `Core/Models/Tag.swift` - UserTag model (Identifiable, Codable, Sendable)
+- `Networking/APIClient.swift` - Tag API methods (fetchUserTags, createTag, deleteTag, updateContentTags, fetchContentsByTag)
+- `App/Services/TagManager.swift` - @Observable service managing tag library and selection
+- `App/Services/ContentManager.swift` - Tag filtering methods (filterByTag, clearTagFilter)
+- `App/ReadlessApp.swift` - TagManager injected into SwiftUI environment
+
+### Key Features
+
+- **AI Tag Selection**: During summarization, AI automatically selects 0-3 relevant tags from user's library
+- **Tag Validation**: Invalid AI-selected tags are filtered out
+- **Soft Deletion**: Deleted tags remain in database but are excluded from queries
+- **Performance**: Batch queries eliminate N+1 issues
+- **User Isolation**: All tag operations respect user_id
+- **Auto-Creation**: Tags are automatically created when assigned to content if they don't exist
+
+### Testing
+
+**Backend Tests (189 passing):**
+- `tests/models/test_content_tag.py` - Model relationships
+- `tests/routers/test_tags.py` - All 6 tag endpoints (37 tests)
+- `tests/routers/test_content.py` - Tag fetching via JOIN (3 tests)
+- `tests/test_summarizer.py` - AI tag selection (4 tests)
+- `tests/test_pipeline.py` - Tag saving (2 tests)
+
+**Test Coverage:**
+- Tag CRUD operations
+- Soft deletion
+- User isolation
+- AI tag selection with/without user tags
+- Invalid tag filtering
+- Database error handling
+- N+1 query prevention
+
 ## External Services
 
 | Service | Purpose | Config Key |
