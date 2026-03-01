@@ -84,19 +84,18 @@ final class CommandBarService {
             case .plainText(let text):
                 // Check if this is long text that should be imported
                 if text.count > 100 {
-                    // Long text - provide import option
-                    let preview = text.prefix(100)
+                    // Long text - provide simple import/retrieve options
                     aiCoordinator.commandResults = [
                         CommandResult(
                             title: "Import this content",
-                            subtitle: "\(preview)...",
-                            icon: "doc.text"
+                            subtitle: "Enter — Generate summary and outline",
+                            icon: "square.and.arrow.down"
                         ) {
                             await self.importText(text)
                         },
                         CommandResult(
-                            title: "Search for: \(text.prefix(30))...",
-                            subtitle: "Search local content",
+                            title: "Search for similar content",
+                            subtitle: "⌘↩ — Search local library",
                             icon: "magnifyingglass"
                         ) {
                             await self.performSearch(text)
@@ -193,23 +192,19 @@ final class CommandBarService {
     }
 
     private func importText(_ text: String) async {
-        do {
-            aiCoordinator.isLoading = true
-            defer { aiCoordinator.isLoading = false }
+        aiCoordinator.isLoading = true
+        defer { aiCoordinator.isLoading = false }
 
-            // Import and display the content
-            await contentManager.importAndDisplay(
-                text: text,
-                appName: "Command Bar",
-                bundleID: nil
-            )
+        // Import and display the content
+        await contentManager.importAndDisplay(
+            text: text,
+            appName: "Command Bar",
+            bundleID: nil
+        )
 
-            // Close command bar after successful import
-            aiCoordinator.hideCommandBar()
-
-        } catch {
-            aiCoordinator.errorMessage = "Failed to import: \(error.localizedDescription)"
-        }
+        // Close command bar after request is sent
+        // (ContentManager will show error toast if backend is not running)
+        aiCoordinator.hideCommandBar()
     }
 
     private func importURL(_ url: URL) async {

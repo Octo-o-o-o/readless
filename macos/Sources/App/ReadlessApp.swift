@@ -29,6 +29,11 @@ struct ReadlessApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .toggleCommandBar)) { _ in
                     aiCoordinator.isCommandBarVisible.toggle()
+
+                    // Activate app to foreground when Command Bar opens
+                    if aiCoordinator.isCommandBarVisible {
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
