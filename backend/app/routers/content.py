@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user_id
 from app.database import get_db
 from app.models.content import Content
+from app.models.content_tag import ContentTag
 from app.models.paragraph import Paragraph
+from app.models.user_tag import UserTag
 from app.schemas.content import (
     ContentCreateRequest,
     ContentResponse,
@@ -42,6 +44,26 @@ def _get_summarizer() -> SummarizationService:
     return _summarizer
 
 
+async def _get_content_tags(
+    content_id: str,
+    db: AsyncSession,
+) -> list[str]:
+    """Helper to fetch tags for a content item via JOIN.
+
+    Only returns active tags (excludes soft-deleted tags).
+    """
+    stmt = (
+        select(UserTag.tag_name)
+        .join(ContentTag, UserTag.id == ContentTag.tag_id)
+        .where(
+            ContentTag.content_id == content_id,
+            UserTag.deleted_at.is_(None),
+        )
+    )
+    result = await db.execute(stmt)
+    return [row[0] for row in result.all()]
+
+
 @router.post("/", response_model=ContentResponse)
 async def create_content(
     req: ContentCreateRequest,
@@ -58,7 +80,7 @@ async def create_content(
         channel=req.channel,
         db=db,
     )
-    return _to_response(content)
+    return await _to_response(content, db)
 
 
 @router.get("/", response_model=list[ContentResponse])
@@ -76,7 +98,15 @@ async def list_contents(
         .offset(skip)
         .limit(limit)
     )
-    return [_to_response(c) for c in result.scalars()]
+    contents = result.scalars().all()
+
+    # Fetch tags for each content item
+    responses = []
+    for content in contents:
+        response = await _to_response(content, db)
+        responses.append(response)
+
+    return responses
 
 
 @router.get("/{content_id}", response_model=ContentResponse)
@@ -89,7 +119,7 @@ async def get_content(
     content = await db.get(Content, content_id)
     if not content or content.user_id != user_id:
         raise HTTPException(404, "Content not found")
-    return _to_response(content)
+    return await _to_response(content, db)
 
 
 @router.get("/{content_id}/paragraphs")
@@ -204,11 +234,14 @@ async def translate_content(
     if not content.l0_summary or not content.l1_outline:
         raise HTTPException(400, "Content has no summaries to translate")
 
+    # Fetch tags via JOIN
+    tags = await _get_content_tags(content_id, db)
+
     # Build current summary from content
     current_summary = ContentSummary(
         l0_summary=content.l0_summary,
         l1_outline=[OutlinePoint(**item) for item in content.l1_outline],
-        tags=content.tags or [],
+        tags=tags,
         keywords=content.keywords or [],
     )
 
@@ -231,15 +264,20 @@ async def translate_content(
         source_language=content.source_language,  # Keep original language
         l0_summary=translated_summary.l0_summary,
         l1_outline=[p.model_dump() for p in translated_summary.l1_outline],
-        tags=content.tags,
+        tags=tags,
         status=content.status,
         created_at=content.created_at,
         updated_at=content.updated_at,
     )
 
 
-def _to_response(c: Content) -> ContentResponse:
-    """Convert a Content ORM instance to a ContentResponse."""
+async def _to_response(c: Content, db: AsyncSession) -> ContentResponse:
+    """Convert a Content ORM instance to a ContentResponse.
+
+    Fetches tags via JOIN from content_tags table.
+    """
+    tags = await _get_content_tags(c.id, db)
+
     return ContentResponse(
         id=c.id,
         title=c.title,
@@ -250,7 +288,7 @@ def _to_response(c: Content) -> ContentResponse:
         source_language=c.source_language,
         l0_summary=c.l0_summary,
         l1_outline=c.l1_outline,
-        tags=c.tags,
+        tags=tags,
         status=c.status,
         created_at=c.created_at,
         updated_at=c.updated_at,
