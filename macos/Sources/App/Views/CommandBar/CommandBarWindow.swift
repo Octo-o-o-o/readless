@@ -3,6 +3,25 @@ import SwiftUI
 import LiquidGlassKit
 import AIServices
 
+// Simple mock provider for input parsing (doesn't need actual AI)
+private struct SimpleMockProvider: AIProviderProtocol {
+    func chat(messages: [ChatMessage], model: String, options: AIChatOptions) async throws -> String {
+        return ""
+    }
+
+    func analyzeImage(imageData: Data, prompt: String, model: String) async throws -> String {
+        return ""
+    }
+
+    func analyzePDF(pdfData: Data, prompt: String, model: String) async throws -> String {
+        return ""
+    }
+
+    func isReasoningModel(_ model: String) -> Bool {
+        return false
+    }
+}
+
 struct CommandBarWindow: View {
     @Environment(AICoordinator.self) private var coordinator
     @State private var query: String = ""
@@ -11,7 +30,14 @@ struct CommandBarWindow: View {
         HStack(spacing: 0) {
             // Main panel
             VStack(spacing: 0) {
-                CommandBarInputField(query: $query)
+                CommandBarInputField(
+                    query: $query,
+                    onDrop: { input in
+                        Task {
+                            await handleInput(input)
+                        }
+                    }
+                )
 
                 Divider()
                     .padding(.horizontal)
@@ -69,6 +95,32 @@ struct CommandBarWindow: View {
         .scaleEffect(coordinator.isCommandBarVisible ? 1.0 : 0.9)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.isCommandBarVisible)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: coordinator.showPreviewPanel)
+    }
+
+    private func handleInput(_ input: CommandBarInput) async {
+        do {
+            coordinator.isLoading = true
+            defer { coordinator.isLoading = false }
+
+            let parsed = try await InputParser(
+                aiProvider: SimpleMockProvider(),
+                config: AIServiceConfig.default.inputParsing
+            ).parse(input)
+
+            // Handle parsed input
+            switch parsed {
+            case .plainText(let text):
+                query = text
+            case .url(let url):
+                query = url.absoluteString
+            case .image, .pdf:
+                coordinator.errorMessage = "Multi-modal analysis coming in Phase 3"
+            case .command:
+                break
+            }
+        } catch {
+            coordinator.errorMessage = error.localizedDescription
+        }
     }
 }
 
