@@ -41,6 +41,7 @@ class Content(Base):
     keywords: Mapped[list[str] | None] = mapped_column(
         ARRAY(String), nullable=True
     )
+    # Note: tags are now in content_tags table (many-to-many with user_tags)
 
     # Language
     source_language: Mapped[str | None] = mapped_column(

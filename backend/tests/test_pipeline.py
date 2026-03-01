@@ -442,3 +442,93 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
     # Verify user_id is set correctly
     for ct in added_content_tags:
         assert ct.user_id == "test_user", f"ContentTag user_id should be 'test_user', got {ct.user_id}"
+
+
+@pytest.mark.asyncio
+async def test_process_content_skips_nonexistent_tags(db_session):
+    """Test that pipeline skips tags that don't exist in user's library."""
+    from app.services.pipeline import ProcessingPipeline
+    from app.models.content import Content
+    from app.models.user_tag import UserTag
+    from app.models.content_tag import ContentTag
+    from unittest.mock import AsyncMock, patch
+
+    # Create only ONE tag
+    tag1 = UserTag(user_id="test_user", tag_name="技术")
+    db_session.add(tag1)
+    await db_session.commit()
+    await db_session.refresh(tag1)
+
+    # Mock extractor to return simple text
+    from app.services.extractor import ExtractedContent, ExtractedParagraph
+    mock_extracted = ExtractedContent(
+        title="Test Article",
+        source_url=None,
+        full_text="Test content for summarization.",
+        paragraphs=[
+            ExtractedParagraph(anchor_id="¶1", text="Test content for summarization.", position=0)
+        ],
+    )
+
+    # Mock summarizer to return tags including one that doesn't exist
+    from app.schemas.summary import ContentSummary, OutlinePoint
+    mock_summary = ContentSummary(
+        l0_summary="Test summary",
+        l1_outline=[OutlinePoint(point="Main point", anchors=["¶1"])],
+        tags=["技术", "不存在的标签"],  # Second tag doesn't exist
+        keywords=["test"],
+    )
+
+    pipeline = ProcessingPipeline()
+    added_content_tags = []
+
+    # Mock db.add to intercept ContentTag objects
+    original_add = db_session.add
+    def mock_add(obj):
+        if isinstance(obj, ContentTag):
+            added_content_tags.append(obj)
+        return original_add(obj)
+
+    # Mock db.execute to allow SELECT queries but skip FTS updates
+    original_execute = db_session.execute
+    async def mock_execute(stmt, *args, **kwargs):
+        # Allow SELECT queries (they work fine on SQLite)
+        stmt_str = str(stmt)
+        if "SELECT" in stmt_str.upper():
+            return await original_execute(stmt, *args, **kwargs)
+        # Skip FTS update queries (they use PostgreSQL-specific syntax)
+        if "to_tsvector" in stmt_str:
+            return AsyncMock()
+        return await original_execute(stmt, *args, **kwargs)
+
+    # Mock the extractor, summarizer, and translator
+    with patch.object(pipeline.extractor, "extract_text", AsyncMock(return_value=mock_extracted)):
+        mock_summarizer = AsyncMock()
+        mock_summarizer.generate_summary = AsyncMock(return_value=mock_summary)
+
+        mock_translator = AsyncMock()
+        mock_translator.detect_language = AsyncMock(return_value="en")
+
+        with patch.object(type(pipeline), "summarizer", property(lambda self: mock_summarizer)):
+            with patch("app.services.translator._get_service", return_value=mock_translator):
+                with patch.object(db_session, "add", side_effect=mock_add):
+                    with patch.object(db_session, "execute", side_effect=mock_execute):
+                        # Mock flush and commit to avoid SQLite type issues
+                        # Disable autoflush to prevent INSERT during SELECT
+                        with db_session.no_autoflush:
+                            with patch.object(db_session, "flush", AsyncMock()):
+                                with patch.object(db_session, "commit", AsyncMock()):
+                                    # Process content using the pipeline's process method
+                                    await pipeline.process(
+                                        source_type="text",
+                                        body="Test content for summarization.",
+                                        user_id="test_user",
+                                        db=db_session,
+                                    )
+
+    # Verify only ONE content_tag was created (for "技术", not "不存在的标签")
+    assert len(added_content_tags) == 1, f"Should only create relationship for existing tag, got {len(added_content_tags)}"
+
+    # Verify the tag is the correct one
+    assert added_content_tags[0].tag_id == tag1.id, f"ContentTag should link to '技术' tag (id={tag1.id})"
+    assert added_content_tags[0].user_id == "test_user", f"ContentTag user_id should be 'test_user'"

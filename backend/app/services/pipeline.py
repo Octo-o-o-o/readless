@@ -1,5 +1,6 @@
 """Content processing pipeline: extract -> summarize -> store."""
 
+import logging
 import uuid
 
 from sqlalchemy import select, text
@@ -11,6 +12,8 @@ from app.models.paragraph import Paragraph
 from app.models.user_tag import UserTag
 from app.services.extractor import ContentExtractor
 from app.services.summarizer import SummarizationService
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessingPipeline:
@@ -89,24 +92,29 @@ class ProcessingPipeline:
         db.add(content)
 
         # Step 3a: Save tags to content_tags table
-        for tag_name in summary.tags:
-            # Get tag_id from user's library
-            stmt = select(UserTag.id).where(
+        if summary.tags:
+            # Batch lookup all tags at once to avoid N+1 queries
+            stmt = select(UserTag.id, UserTag.tag_name).where(
                 UserTag.user_id == user_id,
-                UserTag.tag_name == tag_name,
+                UserTag.tag_name.in_(summary.tags),
                 UserTag.deleted_at.is_(None),
             )
             result = await db.execute(stmt)
-            tag_id = result.scalar_one_or_none()
+            tag_map = {row.tag_name: row.id for row in result}
 
-            if tag_id:
-                # Create content-tag relationship
-                content_tag = ContentTag(
-                    content_id=content_id,
-                    tag_id=tag_id,
-                    user_id=user_id,
-                )
-                db.add(content_tag)
+            # Create relationships for found tags
+            for tag_name in summary.tags:
+                if tag_id := tag_map.get(tag_name):
+                    content_tag = ContentTag(
+                        content_id=content_id,
+                        tag_id=tag_id,
+                        user_id=user_id,
+                    )
+                    db.add(content_tag)
+                else:
+                    logger.warning(
+                        f"AI selected tag '{tag_name}' not found in user {user_id}'s library for content {content_id}"
+                    )
 
         # Step 4: Store paragraphs
         for para in extracted.paragraphs:
