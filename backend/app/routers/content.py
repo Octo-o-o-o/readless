@@ -1,6 +1,8 @@
 """REST API routes for content CRUD, expand, and follow-up Q&A."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +26,7 @@ from app.services.pipeline import ProcessingPipeline
 from app.services.summarizer import SummarizationService
 from app.services.translator import _get_service as get_translator
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/content", tags=["content"])
 
 _pipeline: ProcessingPipeline | None = None
@@ -52,16 +55,21 @@ async def _get_content_tags(
 
     Only returns active tags (excludes soft-deleted tags).
     """
-    stmt = (
-        select(UserTag.tag_name)
-        .join(ContentTag, UserTag.id == ContentTag.tag_id)
-        .where(
-            ContentTag.content_id == content_id,
-            UserTag.deleted_at.is_(None),
+    try:
+        stmt = (
+            select(UserTag.tag_name)
+            .join(ContentTag, UserTag.id == ContentTag.tag_id)
+            .where(
+                ContentTag.content_id == content_id,
+                UserTag.deleted_at.is_(None),
+            )
         )
-    )
-    result = await db.execute(stmt)
-    return [row[0] for row in result.all()]
+        result = await db.execute(stmt)
+        return [row[0] for row in result.all()]
+    except Exception as e:
+        # Log error but don't fail the entire response
+        logger.warning(f"Failed to fetch tags for content {content_id}: {e}")
+        return []
 
 
 @router.post("/", response_model=ContentResponse)
@@ -85,26 +93,65 @@ async def create_content(
 
 @router.get("/", response_model=list[ContentResponse])
 async def list_contents(
-    skip: int = 0,
-    limit: int = 50,
-    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     user_id: str = Depends(get_current_user_id),
-):
-    """List content items for the current user, newest first."""
-    result = await db.execute(
+    db: AsyncSession = Depends(get_db),
+) -> list[ContentResponse]:
+    """List all contents for the current user with pagination."""
+    # Fetch contents
+    stmt = (
         select(Content)
         .where(Content.user_id == user_id)
-        .order_by(desc(Content.created_at))
-        .offset(skip)
+        .order_by(Content.created_at.desc())
         .limit(limit)
+        .offset(offset)
     )
+    result = await db.execute(stmt)
     contents = result.scalars().all()
 
-    # Fetch tags for each content item
+    if not contents:
+        return []
+
+    # Batch-fetch ALL tags for all contents in ONE query
+    content_ids = [c.id for c in contents]
+    stmt = (
+        select(ContentTag.content_id, UserTag.tag_name)
+        .join(UserTag, ContentTag.tag_id == UserTag.id)
+        .where(
+            ContentTag.content_id.in_(content_ids),
+            UserTag.deleted_at.is_(None),
+        )
+    )
+    tag_result = await db.execute(stmt)
+
+    # Group tags by content_id
+    tags_by_content: dict[str, list[str]] = {}
+    for content_id, tag_name in tag_result.all():
+        tags_by_content.setdefault(content_id, []).append(tag_name)
+
+    # Build responses with pre-fetched tags
     responses = []
     for content in contents:
-        response = await _to_response(content, db)
-        responses.append(response)
+        tags = tags_by_content.get(content.id, [])
+        responses.append(
+            ContentResponse(
+                id=content.id,
+                title=content.title,
+                source_url=content.source_url,
+                source_type=content.source_type,
+                source_app_name=content.source_app_name,
+                source_app_bundle_id=content.source_app_bundle_id,
+                source_language=content.source_language,
+                l0_summary=content.l0_summary,
+                l1_outline=content.l1_outline,
+                tags=tags,
+                status=content.status,
+                created_at=content.created_at,
+                updated_at=content.updated_at,
+                podcast_url=None,
+            )
+        )
 
     return responses
 
