@@ -15,11 +15,24 @@ let package = Package(
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "2.0.0")
     ],
     targets: [
-        // MARK: - Core
+        // MARK: - Core (zero dependencies)
         .target(
             name: "Core",
             dependencies: [],
-            path: "Sources/Core"
+            path: "Sources/Core",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]
+        ),
+
+        // MARK: - LiquidGlassKit (design system)
+        .target(
+            name: "LiquidGlassKit",
+            dependencies: [],
+            path: "Sources/LiquidGlassKit",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency")
+            ]
         ),
 
         // MARK: - Networking
@@ -39,11 +52,38 @@ let package = Package(
             path: "Sources/Storage"
         ),
 
-        // MARK: - UI
+        // MARK: - AI Services
+        .target(
+            name: "AIServices",
+            dependencies: ["Core", "Networking"],
+            path: "Sources/AIServices"
+        ),
+
+        // MARK: - Utils
+        .target(
+            name: "Utils",
+            dependencies: [],
+            path: "Sources/Utils"
+        ),
+
+        // MARK: - UI (legacy, will be deprecated)
         .target(
             name: "UI",
             dependencies: ["Core"],
             path: "Sources/UI"
+        ),
+
+        // MARK: - Features
+        .target(
+            name: "ReaderFeature",
+            dependencies: ["Core", "LiquidGlassKit", "Networking", "AIServices"],
+            path: "Sources/ReaderFeature"
+        ),
+
+        .target(
+            name: "LibraryFeature",
+            dependencies: ["Core", "LiquidGlassKit", "Networking"],
+            path: "Sources/LibraryFeature"
         ),
 
         // MARK: - App (executable)
@@ -51,9 +91,14 @@ let package = Package(
             name: "App",
             dependencies: [
                 "Core",
+                "LiquidGlassKit",
                 "Networking",
                 "Storage",
-                "UI",
+                "AIServices",
+                "ReaderFeature",
+                "LibraryFeature",
+                "Utils",
+                "UI", // Keep UI for gradual migration
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ],
             path: "Sources/App",
@@ -83,6 +128,16 @@ let package = Package(
             name: "StorageTests",
             dependencies: ["Storage"],
             path: "Tests/StorageTests"
+        ),
+        .testTarget(
+            name: "LiquidGlassKitTests",
+            dependencies: ["LiquidGlassKit"],
+            path: "Tests/LiquidGlassKitTests"
+        ),
+        .testTarget(
+            name: "AIServicesTests",
+            dependencies: ["AIServices"],
+            path: "Tests/AIServicesTests"
         )
     ]
 )
