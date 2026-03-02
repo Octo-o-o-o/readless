@@ -78,7 +78,7 @@ final class StoreManager {
     // MARK: - Private State
 
     /// Background task listening to transaction updates
-    private var transactionListener: Task<Void, Never>?
+    private nonisolated(unsafe) var transactionListener: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -87,9 +87,8 @@ final class StoreManager {
         startTransactionListener()
     }
 
-    deinit {
-        // Note: Cannot access @MainActor properties in deinit
-        // Task will be automatically cancelled when StoreManager is deallocated
+    nonisolated deinit {
+        transactionListener?.cancel()
     }
 
     // MARK: - Product Loading
@@ -167,8 +166,8 @@ final class StoreManager {
 
                 print("[StoreManager] ✅ Purchase successful, transaction ID: \(transaction.id)")
 
-                // Verify receipt with backend
-                try await verifyReceipt(transaction: transaction)
+                // Verify receipt with backend (pass verification result for JWS)
+                try await verifyReceipt(verificationResult: verification)
 
                 // Finish the transaction
                 await transaction.finish()
@@ -230,8 +229,8 @@ final class StoreManager {
 
                 print("[StoreManager] Found transaction: \(transaction.id) for product: \(transaction.productID)")
 
-                // Verify with backend
-                try await verifyReceipt(transaction: transaction)
+                // Verify with backend (pass verification result for JWS)
+                try await verifyReceipt(verificationResult: result)
 
                 hasActiveSubscription = true
 
@@ -270,31 +269,40 @@ final class StoreManager {
         transactionListener?.cancel()
 
         // StoreKit 2 API: listen to transaction updates stream
-        transactionListener = Task.detached { @MainActor in
+        transactionListener = Task {
             print("[StoreManager] Transaction listener started")
 
             for await result in Transaction.updates {
-                do {
-                    let transaction = try StoreManager.shared.checkVerified(result)
+                await MainActor.run {
+                    do {
+                        let transaction = try StoreManager.shared.checkVerified(result)
 
-                    print("[StoreManager] 🔔 Transaction update: \(transaction.id) for product: \(transaction.productID)")
+                        print("[StoreManager] 🔔 Transaction update: \(transaction.id) for product: \(transaction.productID)")
 
-                    // Verify with backend
-                    try await StoreManager.shared.verifyReceipt(transaction: transaction)
+                        // Verify with backend (pass verification result for JWS)
+                        Task {
+                            do {
+                                try await StoreManager.shared.verifyReceipt(verificationResult: result)
 
-                    // Finish the transaction
-                    await transaction.finish()
+                                // Finish the transaction
+                                await transaction.finish()
 
-                    // Update purchased products
-                    await StoreManager.shared.updatePurchasedProducts()
+                                // Update purchased products
+                                await StoreManager.shared.updatePurchasedProducts()
 
-                    // Refresh user info
-                    try? await AuthService.shared.refreshAccessToken()
+                                // Refresh user info
+                                try? await AuthService.shared.refreshAccessToken()
 
-                    print("[StoreManager] ✅ Transaction update processed")
+                                print("[StoreManager] ✅ Transaction update processed")
 
-                } catch {
-                    print("[StoreManager] ❌ Failed to process transaction update: \(error)")
+                            } catch {
+                                print("[StoreManager] ❌ Failed to process transaction update: \(error)")
+                            }
+                        }
+
+                    } catch {
+                        print("[StoreManager] ❌ Failed to verify transaction: \(error)")
+                    }
                 }
             }
         }
@@ -307,20 +315,22 @@ final class StoreManager {
     /// Sends the StoreKit JWS receipt to backend for server-side verification.
     /// Backend validates with Apple and updates user subscription record.
     ///
-    /// - Parameter transaction: The transaction to verify
+    /// - Parameter verificationResult: The verification result containing the transaction
     /// - Throws: SubscriptionError.receiptVerificationFailed if verification fails
-    private func verifyReceipt(transaction: Transaction) async throws {
+    private func verifyReceipt(verificationResult: VerificationResult<Transaction>) async throws {
+        // Extract transaction
+        let transaction = try checkVerified(verificationResult)
+
         print("[StoreManager] Verifying receipt for transaction: \(transaction.id)")
 
-        // Get JWS representation (StoreKit 2 signed receipt)
-        // In StoreKit 2, the jwsRepresentation is a property of Transaction
-        let transactionJWS = transaction.jsonRepresentation
+        // Get JWS representation from verification result (StoreKit 2 signed receipt)
+        let transactionJWS = verificationResult.jwsRepresentation
 
         do {
             // Call backend to verify receipt
             let response = try await APIClient.shared.verifyReceipt(
                 transactionId: String(transaction.id),
-                verificationData: String(data: transactionJWS, encoding: .utf8) ?? "",
+                verificationData: transactionJWS,
                 productId: transaction.productID
             )
 
