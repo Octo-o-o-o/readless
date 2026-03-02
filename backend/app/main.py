@@ -7,6 +7,7 @@ from app.routers.auth import router as auth_router
 from app.routers.content import router as content_router
 from app.routers.podcast import router as podcast_router
 from app.routers.search import router as search_router
+from app.routers.subscription import router as subscription_router
 from app.routers.tags import router as tags_router
 
 
@@ -53,6 +54,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(content_router)
 app.include_router(podcast_router)
 app.include_router(search_router)
+app.include_router(subscription_router, prefix="/api/v1")
 app.include_router(tags_router)
 
 
