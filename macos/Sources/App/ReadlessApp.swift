@@ -386,6 +386,7 @@ struct ChannelsSettingsView: View {
 struct AccountSettingsView: View {
     @Environment(AuthService.self) private var authService
     @State private var showAuthSheet = false
+    @State private var showSubscriptionSheet = false
 
     var body: some View {
         Form {
@@ -440,6 +441,32 @@ struct AccountSettingsView: View {
                 }
             }
 
+            Section("Subscription") {
+                if let user = authService.currentUser {
+                    // Show current subscription status
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Current Plan")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(tierDisplayName(user.subscriptionTier))
+                                .font(.headline)
+                        }
+
+                        Spacer()
+
+                        Button("Manage Subscription") {
+                            showSubscriptionSheet = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    Text("Sign in to manage your subscription")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section {
                 Text("Your authentication is managed securely with JWT tokens. Refresh tokens are encrypted and stored securely in your device's Keychain.")
                     .font(.caption)
@@ -450,6 +477,22 @@ struct AccountSettingsView: View {
         .frame(width: 500)
         .sheet(isPresented: $showAuthSheet) {
             LoginView()
+        }
+        .sheet(isPresented: $showSubscriptionSheet) {
+            SubscriptionView()
+        }
+    }
+
+    private func tierDisplayName(_ tier: SubscriptionTier) -> String {
+        switch tier {
+        case .trial:
+            return "Trial"
+        case .basic:
+            return "Basic"
+        case .pro:
+            return "Pro"
+        case .expired:
+            return "Expired"
         }
     }
 }
