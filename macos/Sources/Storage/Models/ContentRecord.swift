@@ -21,6 +21,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
     var isFavorite: Bool
     var podcastURL: String?
     var fullText: String?  // Full text for local search
+    var userId: String?  // User ID for multi-user cache isolation
 
     static var databaseTableName: String { "contents" }
 
@@ -41,6 +42,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         static let isFavorite = Column(CodingKeys.isFavorite)
         static let podcastURL = Column(CodingKeys.podcastURL)
         static let fullText = Column(CodingKeys.fullText)
+        static let userId = Column(CodingKeys.userId)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -60,6 +62,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         case isFavorite = "is_favorite"
         case podcastURL = "podcast_url"
         case fullText = "full_text"
+        case userId = "user_id"
     }
 
     // MARK: - Initialization from Content
@@ -81,6 +84,7 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         self.isFavorite = false
         self.podcastURL = content.podcastURL
         self.fullText = content.fullText
+        self.userId = content.userId
     }
 
     // MARK: - Conversion to Content
@@ -108,7 +112,8 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
             createdAt: createdAt,
             updatedAt: updatedAt,
             podcastURL: podcastURL,
-            fullText: fullText
+            fullText: fullText,
+            userId: userId
         )
     }
 }

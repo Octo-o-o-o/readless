@@ -40,6 +40,7 @@ public struct Content: Identifiable, Codable, Sendable {
     public var updatedAt: Date
     public var podcastURL: String?
     public var fullText: String?  // Full text for local search
+    public var userId: String?  // User ID for multi-user cache isolation
 
     // Explicit CodingKeys because .convertFromSnakeCase maps
     // "source_url" → "sourceUrl" (not "sourceURL") and
@@ -58,6 +59,7 @@ public struct Content: Identifiable, Codable, Sendable {
         case updatedAt = "updated_at"
         case podcastURL = "podcast_url"
         case fullText = "full_text"
+        case userId = "user_id"
     }
 
     public init(
@@ -75,7 +77,8 @@ public struct Content: Identifiable, Codable, Sendable {
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         podcastURL: String? = nil,
-        fullText: String? = nil
+        fullText: String? = nil,
+        userId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -92,5 +95,6 @@ public struct Content: Identifiable, Codable, Sendable {
         self.updatedAt = updatedAt
         self.podcastURL = podcastURL
         self.fullText = fullText
+        self.userId = userId
     }
 }

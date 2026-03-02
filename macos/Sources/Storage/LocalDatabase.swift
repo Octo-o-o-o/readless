@@ -171,22 +171,46 @@ public final class LocalDatabase {
             """)
         }
 
+        // v4: Add user_id column for multi-user cache isolation
+        migrator.registerMigration("v4") { db in
+            // Add user_id column (nullable for backward compatibility)
+            try db.alter(table: "contents") { t in
+                t.add(column: "user_id", .text)
+            }
+
+            // Create index for efficient user-based queries
+            try db.create(index: "idx_contents_user_id", on: "contents", columns: ["user_id"])
+        }
+
         return migrator
     }
 
     // MARK: - CRUD Operations
 
     /// Save or update a content record. If content with same ID exists, it will be updated.
-    public func saveContent(_ content: Content) async throws {
+    /// If userId is provided, it will be set on the content before saving.
+    public func saveContent(_ content: Content, userId: String? = nil) async throws {
         try await dbQueue.write { db in
-            try ContentRecord(from: content).save(db)
+            var mutableContent = content
+            if let userId = userId {
+                mutableContent.userId = userId
+            }
+            try ContentRecord(from: mutableContent).save(db)
         }
     }
 
     /// Fetch all contents ordered by creation date (newest first).
-    public func fetchContents(limit: Int = 100, offset: Int = 0) async throws -> [Content] {
+    /// If userId is provided, only fetches content for that user.
+    public func fetchContents(limit: Int = 100, offset: Int = 0, userId: String? = nil) async throws -> [Content] {
         try await dbQueue.read { db in
-            let records = try ContentRecord
+            var query = ContentRecord.all()
+
+            // Filter by user_id if provided
+            if let userId = userId {
+                query = query.filter(Column("user_id") == userId)
+            }
+
+            let records = try query
                 .order(Column("created_at").desc)
                 .limit(limit, offset: offset)
                 .fetchAll(db)
@@ -195,57 +219,103 @@ public final class LocalDatabase {
     }
 
     /// Fetch a single content by ID.
-    public func fetchContent(id: String) async throws -> Content? {
+    /// If userId is provided, only returns the content if it belongs to that user.
+    public func fetchContent(id: String, userId: String? = nil) async throws -> Content? {
         try await dbQueue.read { db in
             guard let record = try ContentRecord.fetchOne(db, key: id) else {
                 return nil
             }
+
+            // Verify user ownership if userId is provided
+            if let userId = userId, record.userId != userId {
+                return nil
+            }
+
             return record.toContent()
         }
     }
 
     /// Delete a content by ID.
-    public func deleteContent(_ contentID: String) async throws {
+    /// If userId is provided, only deletes if the content belongs to that user.
+    public func deleteContent(_ contentID: String, userId: String? = nil) async throws {
         _ = try await dbQueue.write { db in
-            try ContentRecord.deleteOne(db, key: contentID)
+            if let userId = userId {
+                // Only delete if content belongs to user
+                try db.execute(
+                    sql: "DELETE FROM contents WHERE id = ? AND user_id = ?",
+                    arguments: [contentID, userId]
+                )
+            } else {
+                try ContentRecord.deleteOne(db, key: contentID)
+            }
         }
     }
 
     // MARK: - Sync Operations
 
     /// Fetch contents that have not been synced or were modified after last sync.
-    public func unsyncedContents() async throws -> [Content] {
+    /// If userId is provided, only fetches unsynced content for that user.
+    public func unsyncedContents(userId: String? = nil) async throws -> [Content] {
         try await dbQueue.read { db in
-            let records = try ContentRecord
+            var query = ContentRecord
                 .filter(Column("synced_at") == nil || Column("updated_at") > Column("synced_at"))
-                .fetchAll(db)
+
+            // Filter by user_id if provided
+            if let userId = userId {
+                query = query.filter(Column("user_id") == userId)
+            }
+
+            let records = try query.fetchAll(db)
             return records.map { $0.toContent() }
         }
     }
 
     /// Mark a content as synced by updating synced_at timestamp.
-    public func markAsSynced(_ contentID: String) async throws {
+    /// If userId is provided, only marks as synced if the content belongs to that user.
+    public func markAsSynced(_ contentID: String, userId: String? = nil) async throws {
         try await dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE contents SET synced_at = ? WHERE id = ?",
-                arguments: [Date(), contentID]
-            )
+            if let userId = userId {
+                try db.execute(
+                    sql: "UPDATE contents SET synced_at = ? WHERE id = ? AND user_id = ?",
+                    arguments: [Date(), contentID, userId]
+                )
+            } else {
+                try db.execute(
+                    sql: "UPDATE contents SET synced_at = ? WHERE id = ?",
+                    arguments: [Date(), contentID]
+                )
+            }
         }
     }
 
     // MARK: - Utility
 
     /// Get total count of contents.
-    public func contentCount() async throws -> Int {
+    /// If userId is provided, only counts content for that user.
+    public func contentCount(userId: String? = nil) async throws -> Int {
         try await dbQueue.read { db in
-            try ContentRecord.fetchCount(db)
+            if let userId = userId {
+                return try ContentRecord
+                    .filter(Column("user_id") == userId)
+                    .fetchCount(db)
+            } else {
+                return try ContentRecord.fetchCount(db)
+            }
         }
     }
 
-    /// Clear all contents (useful for testing or reset).
-    public func clearAllContents() async throws {
+    /// Clear all contents for a specific user.
+    /// If userId is nil, clears all contents (useful for testing or reset).
+    public func clearAllContents(userId: String? = nil) async throws {
         _ = try await dbQueue.write { db in
-            try ContentRecord.deleteAll(db)
+            if let userId = userId {
+                try db.execute(
+                    sql: "DELETE FROM contents WHERE user_id = ?",
+                    arguments: [userId]
+                )
+            } else {
+                try ContentRecord.deleteAll(db)
+            }
         }
     }
 }
