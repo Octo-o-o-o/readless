@@ -14,6 +14,7 @@ from app.models.content import Content
 from app.models.paragraph import Paragraph
 from app.models.podcast import Podcast
 from app.models.channel import Channel
+from app.models.user import User
 from app.models.user_tag import UserTag
 from app.models.content_tag import ContentTag
 
