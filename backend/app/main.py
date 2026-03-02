@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.admin import create_admin
 from app.config import settings
 from app.routers.auth import router as auth_router
 from app.routers.content import router as content_router
@@ -38,6 +40,12 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# Add session middleware for admin authentication
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.jwt_secret_key,
+)
+
 # Add HTTPS redirect middleware first
 app.add_middleware(HTTPSRedirectMiddleware)
 
@@ -56,6 +64,9 @@ app.include_router(podcast_router)
 app.include_router(search_router)
 app.include_router(subscription_router, prefix="/api/v1")
 app.include_router(tags_router)
+
+# Mount SQLAdmin
+admin = create_admin(app)
 
 
 @app.get("/health")
