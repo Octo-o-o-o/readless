@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,8 +37,30 @@ class Settings(BaseSettings):
     # --- CORS ---
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # --- JWT Configuration ---
+    jwt_secret_key: str = Field(..., min_length=32)
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 30
+
+    # --- Password Policy ---
+    min_password_length: int = 8
+    require_password_uppercase: bool = True
+    require_password_lowercase: bool = True
+    require_password_digit: bool = True
+
+    # --- Apple Configuration ---
+    apple_bundle_id: str = "com.readless.app"
+
+    # --- Resend (Email) ---
+    resend_api_key: str = ""
+    resend_from_email: str = "Readless <noreply@readless.cc>"
+
+    # --- Admin ---
+    admin_token: str = Field(..., min_length=32)
+
     # --- Development ---
-    disable_auth: bool = False  # Set to True to disable Clerk authentication (dev only)
+    disable_auth: bool = False  # Set to True to disable authentication (dev only)
 
 
 settings = Settings()

@@ -20,6 +20,9 @@ dependencies = [
     "pytesseract>=0.3,<1",
     "pdfplumber>=0.11,<1",
     "PyJWT[crypto]>=2.9,<3",
+    "python-jose[cryptography]>=3.3.0",
+    "bcrypt>=4.1.0",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
