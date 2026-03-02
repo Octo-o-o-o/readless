@@ -5,57 +5,45 @@ import Storage
 import UI
 import AIServices
 import KeyboardShortcuts
-import ClerkKit
-import ClerkKitUI
 
 @main
 struct ReadlessApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var authService = AuthService.shared
     @State private var aiCoordinator = AICoordinator()
     @State private var tagManager = TagManager()
 
-    init() {
-        // Configure Clerk with publishable key and redirect URL
-        Clerk.configure(
-            publishableKey: "pk_test_c2V0dGxlZC1oZXJyaW5nLTQ3LmNsZXJrLmFjY291bnRzLmRldiQ",
-            options: .init(
-                redirectConfig: .init(
-                    redirectUrl: "readless://auth/callback"
-                )
-            )
-        )
-
-        // CRITICAL: Initialize AuthManager to sync persisted session token
-        // This must happen BEFORE any API calls are made
-        _ = AuthManager.shared
-    }
-
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(Clerk.shared)
-                .environment(aiCoordinator)
-                .environment(tagManager)
-                .overlay {
-                    if aiCoordinator.isCommandBarVisible {
-                        Color.black.opacity(0.3)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                aiCoordinator.hideCommandBar()
-                            }
+            if authService.isAuthenticated {
+                ContentView()
+                    .environment(authService)
+                    .environment(aiCoordinator)
+                    .environment(tagManager)
+                    .overlay {
+                        if aiCoordinator.isCommandBarVisible {
+                            Color.black.opacity(0.3)
+                                .ignoresSafeArea()
+                                .onTapGesture {
+                                    aiCoordinator.hideCommandBar()
+                                }
 
-                        CommandBarWindow()
-                            .environment(aiCoordinator)
+                            CommandBarWindow()
+                                .environment(aiCoordinator)
+                        }
                     }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .toggleCommandBar)) { _ in
-                    aiCoordinator.isCommandBarVisible.toggle()
+                    .onReceive(NotificationCenter.default.publisher(for: .toggleCommandBar)) { _ in
+                        aiCoordinator.isCommandBarVisible.toggle()
 
-                    // Activate app to foreground when Command Bar opens
-                    if aiCoordinator.isCommandBarVisible {
-                        NSApp.activate(ignoringOtherApps: true)
+                        // Activate app to foreground when Command Bar opens
+                        if aiCoordinator.isCommandBarVisible {
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
                     }
-                }
+            } else {
+                LoginView()
+                    .environment(authService)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 800, height: 600)
@@ -70,6 +58,7 @@ struct ReadlessApp: App {
 
 struct ContentView: View {
     @State private var contentManager = ContentManager.shared
+    @Environment(AuthService.self) private var authService
     @Environment(TagManager.self) private var tagManager
     @State private var selectedSection: SidebarSection? = .allItems
     @State private var selectedContentID: String?
@@ -93,6 +82,10 @@ struct ContentView: View {
                 .padding(.bottom, 24)
         }
         .task {
+            // Wait for AuthService to complete initial token sync
+            while !authService.isInitialized {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
             await contentManager.loadContents()
         }
         .onChange(of: selectedSection) { oldValue, newValue in
@@ -205,7 +198,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 struct SidebarView: View {
     @Binding var selection: SidebarSection?
     @Environment(\.openSettings) private var openSettings
-    @Environment(Clerk.self) private var clerk
+    @Environment(AuthService.self) private var authService
     @Environment(TagManager.self) private var tagManager
     @State private var contentManager = ContentManager.shared
     @State private var showAuthSheet = false
@@ -269,6 +262,10 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .task {
+                // Wait for AuthService to complete initial token sync
+                while !authService.isInitialized {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
                 await tagManager.loadUserTags()
             }
 
@@ -286,11 +283,11 @@ struct SidebarView: View {
                 Spacer()
 
                 Button(action: handleAccountButtonTap) {
-                    Label("Account", systemImage: clerk.user != nil ? "person.circle.fill" : "person.circle")
+                    Label("Account", systemImage: authService.isAuthenticated ? "person.circle.fill" : "person.circle")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.plain)
-                .help(clerk.user != nil ? "Sign Out" : "Sign In")
+                .help(authService.isAuthenticated ? "Sign Out" : "Sign In")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -298,13 +295,13 @@ struct SidebarView: View {
         }
         .navigationTitle("Readless")
         .sheet(isPresented: $showAuthSheet) {
-            SimpleAuthView()
+            LoginView()
         }
         .alert("Sign Out", isPresented: $showSignOutConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
                 Task {
-                    try? await AuthManager.shared.signOut()
+                    try? await authService.signOut()
                 }
             }
         } message: {
@@ -313,7 +310,7 @@ struct SidebarView: View {
     }
 
     private func handleAccountButtonTap() {
-        if clerk.user != nil {
+        if authService.isAuthenticated {
             showSignOutConfirm = true
         } else {
             showAuthSheet = true
@@ -387,13 +384,13 @@ struct ChannelsSettingsView: View {
 }
 
 struct AccountSettingsView: View {
-    @Environment(Clerk.self) private var clerk
+    @Environment(AuthService.self) private var authService
     @State private var showAuthSheet = false
 
     var body: some View {
         Form {
             Section("Account") {
-                if let user = clerk.user {
+                if let user = authService.currentUser {
                     // Logged in state
                     HStack {
                         Image(systemName: "person.circle.fill")
@@ -402,7 +399,7 @@ struct AccountSettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Signed In")
                                 .font(.headline)
-                            if let email = user.primaryEmailAddress?.emailAddress {
+                            if let email = user.email {
                                 Text(email)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -413,7 +410,7 @@ struct AccountSettingsView: View {
 
                     Button(action: {
                         Task {
-                            try? await AuthManager.shared.signOut()
+                            try? await authService.signOut()
                         }
                     }) {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
@@ -444,7 +441,7 @@ struct AccountSettingsView: View {
             }
 
             Section {
-                Text("Your authentication status is managed securely using Clerk. Sessions are encrypted and stored securely on your device.")
+                Text("Your authentication is managed securely with JWT tokens. Refresh tokens are encrypted and stored securely in your device's Keychain.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -452,7 +449,7 @@ struct AccountSettingsView: View {
         .formStyle(.grouped)
         .frame(width: 500)
         .sheet(isPresented: $showAuthSheet) {
-            SimpleAuthView()
+            LoginView()
         }
     }
 }

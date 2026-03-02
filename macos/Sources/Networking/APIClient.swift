@@ -51,7 +51,7 @@ public final class APIClient: @unchecked Sendable {
 
     // MARK: - Generic Request
 
-    private func request(_ path: String, method: String = "GET", body: Data? = nil, isRetry: Bool = false) async throws -> Data {
+    func request(_ path: String, method: String = "GET", body: Data? = nil, isRetry: Bool = false) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             print("[APIClient] ❌ Invalid URL: \(path) relative to \(baseURL)")
             throw APIError.invalidURL

@@ -1,15 +1,6 @@
 {
   "pins" : [
     {
-      "identity" : "clerk-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/clerk/clerk-ios.git",
-      "state" : {
-        "revision" : "53b7ba1a98f196aaa67f8b66b92280fc873faa3d",
-        "version" : "1.0.3"
-      }
-    },
-    {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/groue/GRDB.swift.git",
@@ -25,24 +16,6 @@
       "state" : {
         "revision" : "1aef85578fdd4f9eaeeb8d53b7b4fc31bf08fe27",
         "version" : "2.4.0"
-      }
-    },
-    {
-      "identity" : "nuke",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/kean/Nuke.git",
-      "state" : {
-        "revision" : "83e19143355b02e9261edb2323b3e1e93287ebb9",
-        "version" : "12.9.0"
-      }
-    },
-    {
-      "identity" : "phonenumberkit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/marmelroy/PhoneNumberKit",
-      "state" : {
-        "revision" : "ad20aba8db84a6ba373abfcffe38b1c8e6f8258b",
-        "version" : "4.2.7"
       }
     }
   ],

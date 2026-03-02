@@ -12,8 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "2.0.0"),
-        .package(url: "https://github.com/clerk/clerk-ios.git", from: "1.0.0")
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "2.0.0")
     ],
     targets: [
         // MARK: - Core (zero dependencies)
@@ -100,9 +99,7 @@ let package = Package(
                 "LibraryFeature",
                 "Utils",
                 "UI", // Keep UI for gradual migration
-                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
-                .product(name: "ClerkKit", package: "clerk-ios"),
-                .product(name: "ClerkKitUI", package: "clerk-ios")
+                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ],
             path: "Sources/App",
             exclude: ["Resources", "Services/README_SuggestionEngine.md"],
