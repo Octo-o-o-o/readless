@@ -33,6 +33,11 @@ from app.schemas.tag import (
     TagCreateRequest,
     UserTagResponse,
 )
+from app.schemas.subscription import (
+    SubscriptionStatusResponse,
+    VerifyReceiptRequest,
+    VerifyReceiptResponse,
+)
 
 __all__ = [
     # Auth schemas
@@ -64,4 +69,8 @@ __all__ = [
     "TagCreateRequest",
     "UserTagResponse",
     "ContentTagsUpdateRequest",
+    # Subscription schemas
+    "VerifyReceiptRequest",
+    "VerifyReceiptResponse",
+    "SubscriptionStatusResponse",
 ]
