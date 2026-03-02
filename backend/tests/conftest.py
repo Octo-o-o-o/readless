@@ -1,9 +1,17 @@
 """Pytest configuration and fixtures for tests."""
 
+from unittest.mock import patch
+from uuid import uuid4
+
 import pytest_asyncio
-from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+from app.database import get_db
+from app.main import app
+from app.models.user import User
 
 
 @pytest_asyncio.fixture
@@ -90,3 +98,144 @@ async def db_session():
 
     # Cleanup
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def auth_db_session():
+    """Create an in-memory SQLite database for auth/subscription tests.
+
+    Creates only users, refresh_tokens, and password_reset_tokens tables.
+    Other tables (with JSONB) are not created to avoid SQLite compatibility issues.
+
+    Note: We create tables manually to avoid JSONB issues with SQLite.
+    """
+    from sqlalchemy import event
+
+    from app.models.refresh_token import PasswordResetToken, RefreshToken
+
+    # Import models to ensure they're available
+    User  # noqa: B018
+    PasswordResetToken  # noqa: B018
+    RefreshToken  # noqa: B018
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    # Enable foreign keys for SQLite
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    async with engine.begin() as conn:
+        # Create only the tables we need (User, RefreshToken, PasswordResetToken)
+        # Manually create tables to work around SQLite limitations
+        await conn.run_sync(lambda sync_conn: User.__table__.create(sync_conn))
+        await conn.run_sync(
+            lambda sync_conn: RefreshToken.__table__.create(sync_conn)
+        )
+        await conn.run_sync(
+            lambda sync_conn: PasswordResetToken.__table__.create(sync_conn)
+        )
+
+    async_session = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with async_session() as session:
+        # Patch all models to auto-generate UUIDs for SQLite (no gen_random_uuid())
+        original_user_init = User.__init__
+        original_refresh_init = RefreshToken.__init__
+        original_reset_init = PasswordResetToken.__init__
+
+        def patched_user_init(self, **kwargs):
+            if "id" not in kwargs:
+                kwargs["id"] = uuid4()
+            original_user_init(self, **kwargs)
+
+        def patched_refresh_init(self, **kwargs):
+            if "id" not in kwargs:
+                kwargs["id"] = uuid4()
+            original_refresh_init(self, **kwargs)
+
+        def patched_reset_init(self, **kwargs):
+            if "id" not in kwargs:
+                kwargs["id"] = uuid4()
+            original_reset_init(self, **kwargs)
+
+        User.__init__ = patched_user_init
+        RefreshToken.__init__ = patched_refresh_init
+        PasswordResetToken.__init__ = patched_reset_init
+
+        try:
+            yield session
+        finally:
+            # Restore original __init__ methods
+            User.__init__ = original_user_init
+            RefreshToken.__init__ = original_refresh_init
+            PasswordResetToken.__init__ = original_reset_init
+
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def test_client(auth_db_session):
+    """Create FastAPI test client with overridden database dependency."""
+
+    async def override_get_db():
+        yield auth_db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+def mock_apple_verify():
+    """Mock Apple identity token verification."""
+    # Patch where it's imported, not where it's defined
+    with patch("app.services.apple_auth.verify_apple_identity_token") as mock:
+
+        async def mock_verify(token):
+            return {
+                "apple_id": "test-apple-id-123",
+                "email": "apple@example.com",
+                "email_verified": True,
+            }
+
+        mock.side_effect = mock_verify
+        yield mock
+
+
+@pytest_asyncio.fixture
+def mock_storekit_verify():
+    """Mock StoreKit receipt verification."""
+    with patch("app.services.subscription_service.verify_storekit_receipt") as mock:
+        from datetime import UTC, datetime, timedelta
+
+        async def mock_verify(jws_receipt):
+            # Parse mock receipt to determine tier
+            tier = "basic"
+            if "pro" in jws_receipt.lower():
+                tier = "pro"
+
+            return {
+                "transaction_id": "test-txn-123",
+                "original_transaction_id": "test-orig-txn-123",
+                "product_id": f"com.readless.{tier}.monthly",
+                "subscription_tier": tier,
+                "purchase_date": datetime.now(UTC),
+                "expires_date": datetime.now(UTC) + timedelta(days=30),
+                "is_trial": False,
+            }
+
+        mock.side_effect = mock_verify
+        yield mock
