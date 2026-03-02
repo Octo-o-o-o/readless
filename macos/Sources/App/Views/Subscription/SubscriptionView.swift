@@ -18,6 +18,15 @@ struct SubscriptionView: View {
     @State private var errorMessage: String?
     @State private var showSuccessMessage = false
     @State private var successMessage = ""
+    @State private var successMessageTask: Task<Void, Never>?
+
+    // Static cached formatter for better performance
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -259,16 +268,20 @@ struct SubscriptionView: View {
         // Clear previous messages
         errorMessage = nil
         showSuccessMessage = false
+        successMessageTask?.cancel()
 
         do {
             try await storeManager.purchase(product)
+
+            // Cancel any existing success message task
+            successMessageTask?.cancel()
 
             // Show success message
             successMessage = "Successfully subscribed to \(product.displayName)!"
             showSuccessMessage = true
 
-            // Dismiss success message after 3 seconds
-            Task {
+            // Auto-dismiss after 3 seconds
+            successMessageTask = Task {
                 try? await Task.sleep(for: .seconds(3))
                 showSuccessMessage = false
             }
@@ -285,17 +298,21 @@ struct SubscriptionView: View {
         // Clear previous messages
         errorMessage = nil
         showSuccessMessage = false
+        successMessageTask?.cancel()
 
         do {
             try await storeManager.restorePurchases()
 
             // Check if any purchases were restored
             if storeManager.hasActiveSubscription {
+                // Cancel any existing success message task
+                successMessageTask?.cancel()
+
                 successMessage = "Purchases restored successfully!"
                 showSuccessMessage = true
 
-                // Dismiss success message after 3 seconds
-                Task {
+                // Auto-dismiss after 3 seconds
+                successMessageTask = Task {
                     try? await Task.sleep(for: .seconds(3))
                     showSuccessMessage = false
                 }
@@ -368,10 +385,7 @@ struct SubscriptionView: View {
     }
 
     private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        Self.dateFormatter.string(from: date)
     }
 }
 
