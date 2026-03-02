@@ -72,7 +72,8 @@ public final class CacheManager {
     // MARK: - Cache Eviction (LRU)
 
     /// Evict least recently used content if cache exceeds limit
-    public func evictIfNeeded() async throws {
+    /// If userId is provided, only evicts content for that user
+    public func evictIfNeeded(userId: String? = nil) async throws {
         let current = try await currentSize()
         let target = sizeLimit - SizeLimit.reservedSpace
 
@@ -83,11 +84,25 @@ public final class CacheManager {
 
         try await dbQueue.write { db in
             // Get LRU content IDs (sorted by least recent access)
-            let lruIDs = try String.fetchAll(db, sql: """
+            var sql = """
                 SELECT id FROM contents
+            """
+
+            if userId != nil {
+                sql += " WHERE user_id = ?"
+            }
+
+            sql += """
                 ORDER BY
                     COALESCE(last_accessed_at, updated_at, created_at) ASC
-            """)
+            """
+
+            let lruIDs: [String]
+            if let userId = userId {
+                lruIDs = try String.fetchAll(db, sql: sql, arguments: [userId])
+            } else {
+                lruIDs = try String.fetchAll(db, sql: sql)
+            }
 
             var freedBytes: Int64 = 0
 
@@ -126,46 +141,75 @@ public final class CacheManager {
     }
 
     /// Update last accessed timestamp for a content
-    public func touchContent(_ contentID: String) async throws {
+    /// If userId is provided, only updates if content belongs to that user
+    public func touchContent(_ contentID: String, userId: String? = nil) async throws {
         try await dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE contents SET last_accessed_at = ? WHERE id = ?",
-                arguments: [Date(), contentID]
-            )
+            if let userId = userId {
+                try db.execute(
+                    sql: "UPDATE contents SET last_accessed_at = ? WHERE id = ? AND user_id = ?",
+                    arguments: [Date(), contentID, userId]
+                )
+            } else {
+                try db.execute(
+                    sql: "UPDATE contents SET last_accessed_at = ? WHERE id = ?",
+                    arguments: [Date(), contentID]
+                )
+            }
         }
     }
 
     // MARK: - Cache Clearing
 
     /// Clear all cached data
-    public func clearAll() async throws {
+    /// If userId is provided, only clears cache for that user
+    public func clearAll(userId: String? = nil) async throws {
         try await dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM contents")
-            try? db.execute(sql: "DELETE FROM paragraphs")
-            try? db.execute(sql: "DELETE FROM expanded_details")
+            if let userId = userId {
+                try db.execute(
+                    sql: "DELETE FROM contents WHERE user_id = ?",
+                    arguments: [userId]
+                )
+                // Paragraphs and expanded_details will be cascade deleted
+                print("[CacheManager] Cleared cache for user: \(userId)")
+            } else {
+                try db.execute(sql: "DELETE FROM contents")
+                try? db.execute(sql: "DELETE FROM paragraphs")
+                try? db.execute(sql: "DELETE FROM expanded_details")
+                print("[CacheManager] Cleared all cache")
+            }
             try db.execute(sql: "VACUUM")
         }
-
-        print("[CacheManager] Cleared all cache")
     }
 
     /// Clear cache older than specified days
-    public func clearOlderThan(days: Int) async throws {
+    /// If userId is provided, only clears old cache for that user
+    public func clearOlderThan(days: Int, userId: String? = nil) async throws {
         let cutoffDate = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
 
         try await dbQueue.write { db in
-            try db.execute(
-                sql: """
-                    DELETE FROM contents
-                    WHERE COALESCE(last_accessed_at, updated_at, created_at) < ?
-                """,
-                arguments: [cutoffDate]
-            )
+            if let userId = userId {
+                try db.execute(
+                    sql: """
+                        DELETE FROM contents
+                        WHERE user_id = ?
+                        AND COALESCE(last_accessed_at, updated_at, created_at) < ?
+                    """,
+                    arguments: [userId, cutoffDate]
+                )
+                print("[CacheManager] Cleared cache older than \(days) days for user: \(userId)")
+            } else {
+                try db.execute(
+                    sql: """
+                        DELETE FROM contents
+                        WHERE COALESCE(last_accessed_at, updated_at, created_at) < ?
+                    """,
+                    arguments: [cutoffDate]
+                )
+                print("[CacheManager] Cleared cache older than \(days) days")
+            }
 
             try db.execute(sql: "VACUUM")
         }
-
-        print("[CacheManager] Cleared cache older than \(days) days")
     }
 
     // MARK: - Statistics
@@ -191,11 +235,21 @@ public final class CacheManager {
         }
     }
 
-    public func getStats() async throws -> CacheStats {
+    /// Get cache statistics
+    /// If userId is provided, returns stats for that user's cache only
+    public func getStats(userId: String? = nil) async throws -> CacheStats {
         let current = try await currentSize()
         let available = try await availableSpace()
         let itemCount = try await dbQueue.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM contents") ?? 0
+            if let userId = userId {
+                return try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM contents WHERE user_id = ?",
+                    arguments: [userId]
+                ) ?? 0
+            } else {
+                return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM contents") ?? 0
+            }
         }
 
         return CacheStats(

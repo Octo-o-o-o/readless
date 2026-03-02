@@ -3,6 +3,7 @@ import AppKit
 import Core
 import Networking
 import UI
+import Storage
 
 // MARK: - Content Manager
 
@@ -28,6 +29,12 @@ final class ContentManager {
     // MARK: - Private
 
     private let api = APIClient.shared
+    private let database = LocalDatabase.shared
+
+    /// Get current user ID for database filtering
+    private var currentUserId: String? {
+        AuthService.shared.currentUser?.id.uuidString
+    }
 
     private init() {}
 
@@ -45,6 +52,9 @@ final class ContentManager {
                 bundleID: bundleID
             )
             contents.insert(content, at: 0)
+
+            // Save to local cache
+            try await database.saveContent(content, userId: currentUserId)
         } catch {
             showToast("Import failed: \(error.localizedDescription)")
         }
@@ -64,6 +74,9 @@ final class ContentManager {
             contents.insert(content, at: 0)
             processingContent = content
             capsuleState = .completed
+
+            // Save to local cache
+            try await database.saveContent(content, userId: currentUserId)
 
             // Brief delay before transitioning to the result panel.
             try? await Task.sleep(for: .milliseconds(500))
@@ -85,12 +98,30 @@ final class ContentManager {
 
     // MARK: - Data Loading
 
-    /// Fetch the content list from the backend API.
+    /// Fetch the content list from the backend API and local cache.
+    /// Merges backend data with local cache, prioritizing backend data when available.
     func loadContents() async {
         do {
+            // Try to load from backend first
+            let userId = currentUserId
             contents = try await api.listContents()
+
+            // Save to local cache for offline access
+            for content in contents {
+                try? await database.saveContent(content, userId: userId)
+            }
         } catch {
-            // Silently handle errors for now; the UI will show an empty state.
+            // Fallback to local cache if backend is unavailable
+            do {
+                let userId = currentUserId
+                let cached = try await database.fetchContents(userId: userId)
+                if !cached.isEmpty {
+                    contents = cached
+                    print("[ContentManager] Loaded \(cached.count) items from local cache")
+                }
+            } catch {
+                print("[ContentManager] Failed to load from cache: \(error)")
+            }
         }
     }
 
@@ -100,9 +131,15 @@ final class ContentManager {
         defer { isLoading = false }
 
         do {
+            let userId = currentUserId
             let filteredContent = try await api.fetchContentsByTag(tagId: tagId)
             contents = filteredContent
             error = nil
+
+            // Cache filtered content
+            for content in filteredContent {
+                try? await database.saveContent(content, userId: userId)
+            }
         } catch {
             self.error = error
             print("[ContentManager] Failed to filter by tag: \(error)")
@@ -117,12 +154,16 @@ final class ContentManager {
     /// Refresh a single content item by fetching its latest data
     func refreshContent(id: String) async {
         do {
+            let userId = currentUserId
             let updatedContent = try await api.fetchContent(id: id)
 
             // Update in array
             if let index = contents.firstIndex(where: { $0.id == id }) {
                 contents[index] = updatedContent
             }
+
+            // Update in cache
+            try await database.saveContent(updatedContent, userId: userId)
 
             error = nil
         } catch {

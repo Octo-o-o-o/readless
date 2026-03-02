@@ -15,13 +15,14 @@ public final class LocalSearchService {
     // MARK: - Search
 
     /// Search locally cached content using FTS5
-    public func search(query: String, limit: Int = 20) async throws -> SearchResult {
+    /// If userId is provided, only searches content for that user
+    public func search(query: String, limit: Int = 20, userId: String? = nil) async throws -> SearchResult {
         let results = try await database.dbQueue.read { db -> [SearchResultItem] in
             // FTS5 query format
             let ftsQuery = prepareFTSQuery(query)
 
             // Search using FTS5 with ranking
-            let sql = """
+            var sql = """
                 SELECT
                     c.id,
                     c.title,
@@ -32,11 +33,24 @@ public final class LocalSearchService {
                 FROM contents c
                 JOIN contents_fts ON contents_fts.rowid = c.rowid
                 WHERE contents_fts MATCH ?
+            """
+
+            // Add user filter if provided
+            if userId != nil {
+                sql += " AND c.user_id = ?"
+            }
+
+            sql += """
                 ORDER BY rank
                 LIMIT ?
             """
 
-            let rows = try Row.fetchAll(db, sql: sql, arguments: [ftsQuery, limit])
+            let rows: [Row]
+            if let userId = userId {
+                rows = try Row.fetchAll(db, sql: sql, arguments: [ftsQuery, userId, limit])
+            } else {
+                rows = try Row.fetchAll(db, sql: sql, arguments: [ftsQuery, limit])
+            }
 
             return rows.compactMap { row -> SearchResultItem? in
                 guard let id = row["id"] as? String,
@@ -97,14 +111,21 @@ public final class LocalSearchService {
     // MARK: - Content Syncing
 
     /// Sync content from server to local database for offline search
+    /// Respects user_id if set on the content
     public func syncContent(_ content: Content, fullText: String?, paragraphs: [(anchorID: String, text: String)]) async throws {
         try await database.dbQueue.write { db in
             // Update content with full_text
             if let fullText = fullText {
-                try db.execute(
-                    sql: "UPDATE contents SET full_text = ?, last_accessed_at = ? WHERE id = ?",
-                    arguments: [fullText, Date(), content.id]
-                )
+                var sql = "UPDATE contents SET full_text = ?, last_accessed_at = ? WHERE id = ?"
+                var arguments: [DatabaseValueConvertible] = [fullText, Date(), content.id]
+
+                // Verify user ownership if userId is set on content
+                if let userId = content.userId {
+                    sql += " AND user_id = ?"
+                    arguments.append(userId)
+                }
+
+                try db.execute(sql: sql, arguments: StatementArguments(arguments))
             }
 
             // Save paragraphs for complete local data
@@ -132,12 +153,21 @@ public final class LocalSearchService {
     }
 
     /// Check if content has full data cached locally
-    public func hasFullDataCached(contentID: String) async throws -> Bool {
+    /// If userId is provided, only returns true if content belongs to that user
+    public func hasFullDataCached(contentID: String, userId: String? = nil) async throws -> Bool {
         try await database.dbQueue.read { db in
+            var sql = "SELECT full_text IS NOT NULL FROM contents WHERE id = ?"
+            var arguments: [DatabaseValueConvertible] = [contentID]
+
+            if let userId = userId {
+                sql += " AND user_id = ?"
+                arguments.append(userId)
+            }
+
             let hasFullText = try Bool.fetchOne(
                 db,
-                sql: "SELECT full_text IS NOT NULL FROM contents WHERE id = ?",
-                arguments: [contentID]
+                sql: sql,
+                arguments: StatementArguments(arguments)
             ) ?? false
 
             let hasParagraphs = try Int.fetchOne(
