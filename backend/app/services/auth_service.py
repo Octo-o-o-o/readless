@@ -464,3 +464,83 @@ class AuthService:
         )
 
         await self.db.commit()
+
+    # ==================== Apple Sign In ====================
+
+    async def apple_signin(
+        self,
+        identity_token: str,
+        device_name: str | None = None,
+        device_id: str | None = None
+    ) -> tuple[User, str, str, bool]:
+        """
+        Apple Sign In - find or create user, generate tokens.
+
+        Args:
+            identity_token: Apple identity token (JWT)
+            device_name: Optional device name for token tracking
+            device_id: Optional device ID for token tracking
+
+        Returns:
+            Tuple of (user, access_token, refresh_token, is_new_user)
+
+        Raises:
+            HTTPException: If Apple token verification fails (from verify_apple_identity_token)
+            ValueError: If database operation fails
+        """
+        from app.services.apple_auth import verify_apple_identity_token
+
+        # Verify Apple identity token
+        apple_data = await verify_apple_identity_token(identity_token)
+        apple_id = apple_data["apple_id"]
+        email = apple_data.get("email")
+        email_verified = apple_data.get("email_verified", False)
+
+        # Check if user exists
+        result = await self.db.execute(
+            select(User).where(User.apple_id == apple_id, User.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+
+        is_new_user = False
+
+        if not user:
+            # Create new user
+            now = datetime.now(timezone.utc)
+            user = User(
+                apple_id=apple_id,
+                email=email,
+                email_verified=email_verified if email else False,
+                subscription_tier="trial",
+                trial_expires_at=now + timedelta(days=7),
+            )
+            self.db.add(user)
+            is_new_user = True
+        else:
+            # Update last login
+            user.last_login_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        # Generate tokens
+        access_token = create_access_token(
+            user_id=str(user.id)
+        )
+        refresh_token_str = create_refresh_token(
+            user_id=str(user.id)
+        )
+
+        # Store refresh token
+        now = datetime.now(timezone.utc)
+        refresh_token = RefreshToken(
+            token=refresh_token_str,
+            user_id=user.id,
+            expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+            device_name=device_name,
+            device_id=device_id,
+        )
+        self.db.add(refresh_token)
+        await self.db.commit()
+
+        return user, access_token, refresh_token_str, is_new_user
