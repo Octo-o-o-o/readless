@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user_id
 from app.database import get_db
 from app.schemas.subscription import (
     SubscriptionStatusResponse,
@@ -19,20 +20,19 @@ router = APIRouter(prefix="/subscription", tags=["subscription"])
 @router.post("/verify-receipt", response_model=VerifyReceiptResponse)
 async def verify_receipt(
     request: VerifyReceiptRequest,
-    # TODO: Add get_current_user dependency
-    user_id: str = "temp-user-id",  # Placeholder
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Verify App Store receipt and update subscription."""
     subscription_service = SubscriptionService(db)
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
 
     try:
-        # Convert user_id to UUID (temporary placeholder logic)
-        # In production, this comes from get_current_user dependency
-        # For now, we'll skip authentication to test the flow
-
         result = await subscription_service.verify_and_update_subscription(
-            user_id=UUID(user_id),
+            user_id=user_uuid,
             jws_receipt=request.verification_data,
             transaction_id=request.transaction_id,
         )
@@ -46,16 +46,19 @@ async def verify_receipt(
 
 @router.get("/status", response_model=SubscriptionStatusResponse)
 async def get_status(
-    # TODO: Add get_current_user dependency
-    user_id: str = "temp-user-id",  # Placeholder
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Get current subscription status."""
     subscription_service = SubscriptionService(db)
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
 
     try:
         result = await subscription_service.get_subscription_status(
-            user_id=UUID(user_id)
+            user_id=user_uuid
         )
 
         return SubscriptionStatusResponse(**result)

@@ -19,6 +19,13 @@ from sqlalchemy import select
 from app.models.user import User
 
 
+def ensure_utc(dt: datetime) -> datetime:
+    """Normalize possibly-naive datetimes from SQLite to UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 # ==================== Receipt Verification Tests ====================
 
 
@@ -35,7 +42,17 @@ async def test_verify_receipt_basic_subscription(
             "password": "SecurePass123!",
         },
     )
-    user_id = register_response.json()["user_id"]
+    assert register_response.status_code == 201
+
+    login_response = await test_client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "basic@example.com",
+            "password": "SecurePass123!",
+        },
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
 
     # Verify receipt for Basic subscription
     response = await test_client.post(
@@ -43,15 +60,12 @@ async def test_verify_receipt_basic_subscription(
         json={
             "verification_data": "mock-basic-receipt",
             "transaction_id": "test-txn-123",
+            "product_id": "com.readless.basic.monthly",
         },
-        # TODO: Add authorization header once auth middleware is implemented
-        # For now, endpoint uses placeholder user_id
+        headers={"Authorization": f"Bearer {access_token}"},
     )
 
-    # Note: Current implementation uses placeholder user_id
-    # This test verifies the endpoint structure is correct
-    # Will need to be updated when auth middleware is added
-    assert response.status_code in [200, 400]  # 400 if user_id is invalid UUID
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -331,7 +345,7 @@ async def test_upgrade_basic_to_pro(test_client, mock_storekit_verify, auth_db_s
     await auth_db_session.refresh(user)
     assert user.subscription_tier == "pro"
     # Expiration date should be updated (new 30-day period from mock)
-    assert user.subscription_expires_at > basic_expires
+    assert ensure_utc(user.subscription_expires_at) > basic_expires
 
 
 @pytest.mark.asyncio
@@ -482,11 +496,12 @@ async def test_subscription_activation_dates(
 
     # Verify expiration date is in the future (mock returns +30 days)
     assert user.subscription_expires_at is not None
-    assert user.subscription_expires_at > before_activation
+    expires_at = ensure_utc(user.subscription_expires_at)
+    assert expires_at > before_activation
 
     # Should be approximately 30 days from now (from mock)
     expected_expiry = datetime.now(UTC) + timedelta(days=30)
-    time_diff = abs((user.subscription_expires_at - expected_expiry).total_seconds())
+    time_diff = abs((expires_at - expected_expiry).total_seconds())
     assert time_diff < 10  # Within 10 seconds
 
 

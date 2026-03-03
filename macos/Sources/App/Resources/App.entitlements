@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App identity -->
+    <key>com.apple.application-identifier</key>
+    <string>5CS6HUB4P2.com.readless.app</string>
+
+    <key>com.apple.developer.team-identifier</key>
+    <string>5CS6HUB4P2</string>
+
+    <!-- Sign in with Apple -->
+    <key>com.apple.developer.applesignin</key>
+    <array>
+        <string>Default</string>
+    </array>
+
+    <!-- get-task-allow intentionally omitted: the provisioning profile does not
+         authorize it, and macOS 26 AMFI kills any process with entitlements
+         not present in the profile. Run via Xcode (⌘R) for debugger support. -->
+</dict>
+</plist>

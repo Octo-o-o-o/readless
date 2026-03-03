@@ -13,11 +13,12 @@ All tests use in-memory SQLite database and mock external services.
 """
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 
-from app.models.refresh_token import PasswordResetToken, RefreshToken
+from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
 from app.models.user import User
 
 
@@ -60,8 +61,8 @@ async def test_complete_registration_flow(test_client, auth_db_session):
     # Verify trial period is ~7 days
     # SQLite doesn't preserve timezone info, so make trial_expires_at aware
     trial_expires_aware = user.trial_expires_at.replace(tzinfo=UTC) if user.trial_expires_at.tzinfo is None else user.trial_expires_at
-    trial_duration = trial_expires_aware - datetime.now(UTC)
-    assert 6.9 < trial_duration.days < 7.1
+    trial_duration_days = (trial_expires_aware - datetime.now(UTC)).total_seconds() / 86400
+    assert 6.9 < trial_duration_days < 7.1
 
 
 @pytest.mark.asyncio
@@ -86,7 +87,8 @@ async def test_registration_with_existing_email(test_client, auth_db_session):
     )
 
     assert response.status_code == 400
-    assert "already registered" in response.json()["detail"].lower()
+    detail = response.json()["detail"].lower()
+    assert "already exists" in detail or "already registered" in detail
 
 
 @pytest.mark.asyncio
@@ -152,7 +154,7 @@ async def test_complete_login_flow(test_client, auth_db_session):
 
     # Verify refresh token stored in database
     result = await auth_db_session.execute(
-        select(RefreshToken).where(RefreshToken.user_id == str(user.id))
+        select(RefreshToken).where(RefreshToken.user_id == user.id)
     )
     refresh_token = result.scalar_one_or_none()
     assert refresh_token is not None
@@ -197,6 +199,83 @@ async def test_login_with_nonexistent_email(test_client):
 
     assert response.status_code == 401
     assert "invalid" in response.json()["detail"].lower()
+
+
+# ==================== Email Code Login Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_send_email_login_code(test_client, auth_db_session, mock_resend_email):
+    """Test sending email login code stores hashed code and triggers email."""
+    response = await test_client.post(
+        "/api/v1/auth/email/send-code",
+        json={"email": "code@example.com"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["message"] == "Verification code sent."
+    assert data["expires_in"] == 600
+    assert len(mock_resend_email) == 1
+    assert mock_resend_email[0][0] == "code@example.com"
+
+    result = await auth_db_session.execute(
+        select(EmailLoginCode).where(EmailLoginCode.email == "code@example.com")
+    )
+    code_record = result.scalar_one_or_none()
+    assert code_record is not None
+    assert code_record.code_hash != mock_resend_email[0][1]
+    assert code_record.used_at is None
+
+
+@pytest.mark.asyncio
+async def test_email_code_login_creates_user_if_missing(
+    test_client, auth_db_session, mock_resend_email
+):
+    """Test email code login auto-creates new trial user."""
+    await test_client.post(
+        "/api/v1/auth/email/send-code",
+        json={"email": "newcode@example.com"},
+    )
+    code = mock_resend_email[0][1]
+
+    response = await test_client.post(
+        "/api/v1/auth/email/verify-code",
+        json={"email": "newcode@example.com", "code": code},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_new_user"] is True
+    assert data["user"]["email"] == "newcode@example.com"
+    assert data["user"]["subscription_tier"] == "trial"
+    assert "access_token" in data
+    assert "refresh_token" in data
+
+    result = await auth_db_session.execute(
+        select(User).where(User.email == "newcode@example.com")
+    )
+    user = result.scalar_one_or_none()
+    assert user is not None
+    assert user.email_verified is True
+
+
+@pytest.mark.asyncio
+async def test_email_code_login_invalid_code(test_client, mock_resend_email):
+    """Test email code login rejects invalid code."""
+    await test_client.post(
+        "/api/v1/auth/email/send-code",
+        json={"email": "badcode@example.com"},
+    )
+    assert len(mock_resend_email) == 1
+
+    response = await test_client.post(
+        "/api/v1/auth/email/verify-code",
+        json={"email": "badcode@example.com", "code": "000000"},
+    )
+
+    assert response.status_code == 400
+    assert "invalid or expired" in response.json()["detail"].lower()
 
 
 # ==================== Token Refresh Tests ====================
@@ -413,7 +492,7 @@ async def test_complete_user_journey(test_client, auth_db_session):
 
     # 4. Verify user state in database
     result = await auth_db_session.execute(
-        select(User).where(User.id == user_id)
+        select(User).where(User.id == UUID(user_id))
     )
     user = result.scalar_one_or_none()
 

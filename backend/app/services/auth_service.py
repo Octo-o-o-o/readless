@@ -16,6 +16,9 @@ JWT tokens use HS256 with configurable expiry.
 """
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import secrets
 from uuid import UUID
 
 from jwt import InvalidTokenError
@@ -33,8 +36,21 @@ from app.auth_utils import (
     verify_refresh_token,
 )
 from app.config import settings
-from app.models.refresh_token import PasswordResetToken, RefreshToken
+from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
 from app.models.user import User
+from app.services.email_service import ResendEmailService
+
+
+def _to_utc(dt: datetime) -> datetime:
+    """Normalize datetimes to UTC, handling naive values from SQLite/tests."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _normalize_email(email: str) -> str:
+    """Normalize email for lookups and uniqueness checks."""
+    return email.strip().lower()
 
 
 class AuthService:
@@ -48,6 +64,7 @@ class AuthService:
             db: AsyncSession for database operations
         """
         self.db = db
+        self.email_service = ResendEmailService()
 
     # ==================== User Registration ====================
 
@@ -71,6 +88,8 @@ class AuthService:
         Raises:
             ValueError: If email exists, password invalid, or DB error
         """
+        email = _normalize_email(email)
+
         # Validate password
         is_valid, error_msg = validate_password(password)
         if not is_valid:
@@ -82,7 +101,7 @@ class AuthService:
         )
         existing_user = result.scalars().first()
         if existing_user:
-            raise ValueError("Email already registered")
+            raise ValueError("An account with this email already exists. Try logging in instead.")
 
         # Hash password
         password_hash = hash_password(password)
@@ -134,6 +153,8 @@ class AuthService:
         Raises:
             ValueError: If credentials invalid or user deleted
         """
+        email = _normalize_email(email)
+
         # Find user by email
         result = await self.db.execute(
             select(User).where(User.email == email, User.deleted_at.is_(None))
@@ -150,7 +171,6 @@ class AuthService:
         # Update last login time
         now = datetime.now(timezone.utc)
         user.last_login_at = now
-        await self.db.commit()
 
         # Generate tokens
         user_id_str = str(user.id)
@@ -172,6 +192,145 @@ class AuthService:
 
         return user, access_token, refresh_token_str
 
+    def _generate_email_login_code(self) -> str:
+        """Generate 6-digit one-time login code."""
+        return f"{secrets.randbelow(1_000_000):06d}"
+
+    def _hash_email_login_code(self, email: str, code: str) -> str:
+        """Create deterministic hash for stored login code validation."""
+        normalized_email = _normalize_email(email)
+        payload = f"{normalized_email}:{code}:{settings.jwt_secret_key}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    async def send_email_login_code(self, email: str) -> None:
+        """
+        Send one-time email login code.
+
+        Raises:
+            ValueError: If sending too frequently or email delivery fails
+        """
+        normalized_email = _normalize_email(email)
+        now = datetime.now(timezone.utc)
+
+        # Basic anti-spam: throttle resend interval per email.
+        latest_result = await self.db.execute(
+            select(EmailLoginCode)
+            .where(EmailLoginCode.email == normalized_email)
+            .order_by(EmailLoginCode.created_at.desc())
+            .limit(1)
+        )
+        latest_code = latest_result.scalar_one_or_none()
+        if latest_code:
+            last_sent_seconds = (now - _to_utc(latest_code.created_at)).total_seconds()
+            if last_sent_seconds < settings.email_login_code_resend_interval_seconds:
+                raise ValueError("Code sent too frequently. Please wait and try again.")
+
+        # Invalidate previous unused codes for the same email.
+        await self.db.execute(
+            update(EmailLoginCode)
+            .where(
+                EmailLoginCode.email == normalized_email,
+                EmailLoginCode.used_at.is_(None),
+            )
+            .values(used_at=now)
+        )
+
+        code = self._generate_email_login_code()
+        code_record = EmailLoginCode(
+            email=normalized_email,
+            code_hash=self._hash_email_login_code(normalized_email, code),
+            expires_at=now + timedelta(minutes=settings.email_login_code_expire_minutes),
+        )
+        self.db.add(code_record)
+        await self.db.commit()
+        await self.db.refresh(code_record)
+
+        try:
+            await self.email_service.send_login_code(to_email=normalized_email, code=code)
+        except ValueError:
+            await self.db.execute(
+                delete(EmailLoginCode).where(EmailLoginCode.id == code_record.id)
+            )
+            await self.db.commit()
+            raise
+
+    async def verify_email_login_code(
+        self,
+        email: str,
+        code: str,
+        device_name: str | None = None,
+        device_id: str | None = None,
+    ) -> tuple[User, str, str, bool]:
+        """
+        Verify one-time code and issue JWT session.
+
+        Returns:
+            Tuple of (user, access_token, refresh_token, is_new_user)
+        """
+        normalized_email = _normalize_email(email)
+        now = datetime.now(timezone.utc)
+
+        result = await self.db.execute(
+            select(EmailLoginCode).where(
+                EmailLoginCode.email == normalized_email,
+                EmailLoginCode.used_at.is_(None),
+                EmailLoginCode.expires_at >= now,
+            ).order_by(EmailLoginCode.created_at.desc())
+        )
+        code_record = result.scalars().first()
+
+        if not code_record:
+            raise ValueError("Verification code is invalid or expired.")
+
+        expected_hash = self._hash_email_login_code(normalized_email, code.strip())
+        if not hmac.compare_digest(code_record.code_hash, expected_hash):
+            code_record.attempts += 1
+            if code_record.attempts >= 5:
+                code_record.used_at = now
+            await self.db.commit()
+            raise ValueError("Verification code is invalid or expired.")
+
+        code_record.used_at = now
+
+        # Find existing user by email or create a new trial user.
+        user_result = await self.db.execute(
+            select(User).where(User.email == normalized_email, User.deleted_at.is_(None))
+        )
+        user = user_result.scalars().first()
+        is_new_user = False
+
+        if not user:
+            user = User(
+                email=normalized_email,
+                email_verified=True,
+                subscription_tier="trial",
+                trial_expires_at=now + timedelta(days=7),
+                last_login_at=now,
+            )
+            self.db.add(user)
+            is_new_user = True
+            await self.db.flush()
+        else:
+            user.last_login_at = now
+            user.email_verified = True
+
+        access_token = create_access_token(str(user.id))
+        refresh_token_str = create_refresh_token(str(user.id))
+
+        refresh_token = RefreshToken(
+            token=refresh_token_str,
+            user_id=user.id,
+            expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+            device_name=device_name,
+            device_id=device_id,
+            last_used_at=now,
+        )
+        self.db.add(refresh_token)
+        await self.db.commit()
+        await self.db.refresh(user)
+
+        return user, access_token, refresh_token_str, is_new_user
+
     # ==================== Token Refresh ====================
 
     async def refresh_access_token(self, refresh_token_str: str) -> str:
@@ -190,8 +349,8 @@ class AuthService:
         # Verify JWT signature and expiry
         try:
             payload = verify_refresh_token(refresh_token_str)
-        except InvalidTokenError as e:
-            raise ValueError(f"Invalid refresh token: {e}") from e
+        except InvalidTokenError:
+            raise ValueError("Invalid or expired session. Please log in again.")
 
         user_id_str = payload["sub"]
 
@@ -202,12 +361,12 @@ class AuthService:
         token_record = result.scalars().first()
 
         if not token_record:
-            raise ValueError("Refresh token not found or revoked")
+            raise ValueError("Your session has expired. Please log in again.")
 
         # Check token not expired (double-check DB expiry)
         now = datetime.now(timezone.utc)
-        if token_record.expires_at < now:
-            raise ValueError("Refresh token expired")
+        if _to_utc(token_record.expires_at) < now:
+            raise ValueError("Your session has expired. Please log in again.")
 
         # Check user still exists and not deleted
         user_id = UUID(user_id_str)
@@ -217,7 +376,7 @@ class AuthService:
         user = result.scalars().first()
 
         if not user:
-            raise ValueError("User not found")
+            raise ValueError("Your session has expired. Please log in again.")
 
         # Update last used time
         token_record.last_used_at = now
@@ -401,7 +560,7 @@ class AuthService:
         # Check token not expired
         now = datetime.now(timezone.utc)
         if reset_token.expires_at < now:
-            raise ValueError("Reset token expired")
+            raise ValueError("Password reset link has expired. Please request a new one.")
 
         # Find user
         result = await self.db.execute(

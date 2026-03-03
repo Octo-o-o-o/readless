@@ -56,7 +56,9 @@ final class ContentManager {
             // Save to local cache
             try await database.saveContent(content, userId: currentUserId)
         } catch {
-            showToast("Import failed: \(error.localizedDescription)")
+            // Show user-friendly error message
+            let message = userFriendlyErrorMessage(for: error)
+            showToast(message)
         }
     }
 
@@ -86,7 +88,9 @@ final class ContentManager {
             }
         } catch {
             capsuleState = .dismissed
-            showToast("Import failed: \(error.localizedDescription)")
+            // Show user-friendly error message
+            let message = userFriendlyErrorMessage(for: error)
+            showToast(message)
         }
     }
 
@@ -176,6 +180,31 @@ final class ContentManager {
 
     private func showToast(_ message: String) {
         NotificationCenter.default.post(name: .showToast, object: message)
+    }
+
+    /// Convert technical errors into user-friendly messages
+    private func userFriendlyErrorMessage(for error: Error) -> String {
+        // Check for API errors first (most specific)
+        if let apiError = error as? APIError {
+            return apiError.localizedDescription
+        }
+
+        // Check for network errors
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost:
+                return "No internet connection. Please check your network."
+            case .timedOut:
+                return "Request timed out. Please try again."
+            case .cannotFindHost, .cannotConnectToHost:
+                return "Could not connect to server. Please try again later."
+            default:
+                return "Network error. Please check your connection."
+            }
+        }
+
+        // Fallback to generic message
+        return "Import failed. Please try again."
     }
 }
 

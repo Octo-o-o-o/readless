@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     # --- Resend (Email) ---
     resend_api_key: str = ""
     resend_from_email: str = "Readless <noreply@readless.cc>"
+    email_login_code_expire_minutes: int = 10
+    email_login_code_resend_interval_seconds: int = 30
 
     # --- Admin ---
     admin_token: str = Field(..., min_length=32)

@@ -1,12 +1,19 @@
 """Authentication API endpoints."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user_id
 from app.database import get_db
+from app.models.user import User
+from app.config import settings
 from app.schemas.auth import (
     AppleSignInRequest,
     AppleSignInResponse,
+    EmailCodeLoginResponse,
     LoginRequest,
     LoginResponse,
     MessageResponse,
@@ -14,7 +21,10 @@ from app.schemas.auth import (
     RefreshTokenResponse,
     RegisterRequest,
     RegisterResponse,
+    SendEmailCodeRequest,
+    SendEmailCodeResponse,
     UserResponse,
+    VerifyEmailCodeRequest,
 )
 from app.services.auth_service import AuthService
 
@@ -73,6 +83,51 @@ async def login(
         raise HTTPException(status_code=401, detail=str(e))
 
 
+@router.post("/email/send-code", response_model=SendEmailCodeResponse)
+async def send_email_login_code(
+    request: SendEmailCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send one-time login code to email."""
+    auth_service = AuthService(db)
+
+    try:
+        await auth_service.send_email_login_code(email=request.email)
+        return SendEmailCodeResponse(
+            message="Verification code sent.",
+            expires_in=settings.email_login_code_expire_minutes * 60,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/email/verify-code", response_model=EmailCodeLoginResponse)
+async def verify_email_login_code(
+    request: VerifyEmailCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify one-time login code and create session."""
+    auth_service = AuthService(db)
+
+    try:
+        user, access_token, refresh_token, is_new_user = await auth_service.verify_email_login_code(
+            email=request.email,
+            code=request.code,
+            device_name=None,
+            device_id=None,
+        )
+
+        return EmailCodeLoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=900,
+            user=UserResponse.model_validate(user),
+            is_new_user=is_new_user,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/refresh", response_model=RefreshTokenResponse)
 async def refresh_token(
     request: RefreshTokenRequest,
@@ -83,7 +138,7 @@ async def refresh_token(
 
     try:
         access_token = await auth_service.refresh_access_token(
-            refresh_token=request.refresh_token
+            refresh_token_str=request.refresh_token
         )
 
         return RefreshTokenResponse(
@@ -124,9 +179,34 @@ async def apple_signin(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
-    # TODO: Add get_current_user dependency
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Logout (revoke all refresh tokens)."""
-    # TODO: Implement after auth middleware is added
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    auth_service = AuthService(db)
+    try:
+        await auth_service.logout_user(UUID(user_id))
+        return MessageResponse(message="Logged out successfully.")
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_current_user(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current authenticated user profile."""
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
+
+    result = await db.execute(
+        select(User).where(User.id == user_uuid, User.deleted_at.is_(None))
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found. Please log in again.")
+
+    return UserResponse.model_validate(user)

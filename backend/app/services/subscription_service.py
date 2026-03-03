@@ -1,6 +1,5 @@
 """Subscription management service."""
 
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -27,9 +26,6 @@ class SubscriptionService:
 
         Returns subscription information.
         """
-        # Verify receipt with Apple
-        receipt_data = await verify_storekit_receipt(jws_receipt)
-
         # Get user
         result = await self.db.execute(
             select(User).where(User.id == user_id, User.deleted_at.is_(None))
@@ -38,6 +34,9 @@ class SubscriptionService:
 
         if not user:
             raise ValueError("User not found")
+
+        # Verify receipt with Apple
+        receipt_data = await verify_storekit_receipt(jws_receipt)
 
         # Update user's subscription
         user.subscription_tier = receipt_data["subscription_tier"]

@@ -30,7 +30,7 @@ class ContentResponse(BaseModel):
     tags: list[str] | None
     status: str
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None = None
     podcast_url: str | None = None
     full_text: str | None = None  # For local search sync
 

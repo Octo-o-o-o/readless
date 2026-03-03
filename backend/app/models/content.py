@@ -10,7 +10,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID as pgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -58,7 +58,7 @@ class Content(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )
-    user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    user_id: Mapped[str] = mapped_column(pgUUID(as_uuid=False), nullable=False)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

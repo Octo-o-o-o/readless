@@ -95,10 +95,15 @@ async def create_content(
 async def list_contents(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    skip: int | None = Query(default=None, ge=0),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[ContentResponse]:
     """List all contents for the current user with pagination."""
+    if skip is not None:
+        # Backward-compatibility for older clients still sending `skip`.
+        offset = skip
+
     # Fetch contents
     stmt = (
         select(Content)
@@ -220,7 +225,7 @@ async def expand_point(
     )
     outline = content.l1_outline or []
     if req.point_index >= len(outline):
-        raise HTTPException(400, "Invalid point index")
+        raise HTTPException(400, f"Invalid outline point. Please select a valid point (0-{len(outline)-1}).")
     point = OutlinePoint(**outline[req.point_index])
     detail = await _get_summarizer().expand_point(extracted, point)
     return TextResponse(text=detail)

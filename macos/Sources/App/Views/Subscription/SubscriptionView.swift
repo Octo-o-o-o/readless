@@ -1,6 +1,7 @@
 import SwiftUI
 import StoreKit
 import Core
+import Networking
 
 /// Main subscription management view
 ///
@@ -258,7 +259,7 @@ struct SubscriptionView: View {
         do {
             try await storeManager.loadProducts()
         } catch {
-            errorMessage = "Failed to load products: \(error.localizedDescription)"
+            errorMessage = "Could not load subscription products. Please check your connection and try again."
         }
 
         isLoading = false
@@ -290,7 +291,14 @@ struct SubscriptionView: View {
             // User cancelled, don't show error
             return
         } catch {
-            errorMessage = storeManager.lastError?.localizedDescription ?? error.localizedDescription
+            // Check if it's a network error
+            if let urlError = error as? URLError {
+                errorMessage = "Could not complete purchase. Please check your internet connection."
+            } else if let apiError = error as? APIError {
+                errorMessage = apiError.localizedDescription
+            } else {
+                errorMessage = "Purchase failed. Please try again or contact support if this continues."
+            }
         }
     }
 
@@ -321,7 +329,14 @@ struct SubscriptionView: View {
             }
 
         } catch {
-            errorMessage = storeManager.lastError?.localizedDescription ?? error.localizedDescription
+            // Check if it's a network error
+            if let urlError = error as? URLError {
+                errorMessage = "Could not restore purchases. Please check your internet connection."
+            } else if let apiError = error as? APIError {
+                errorMessage = apiError.localizedDescription
+            } else {
+                errorMessage = "Could not restore purchases. Please try again later."
+            }
         }
     }
 

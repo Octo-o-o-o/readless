@@ -11,13 +11,24 @@ from pydantic import BaseModel, EmailStr, Field
 class RegisterRequest(BaseModel):
     """Registration request."""
     email: EmailStr
-    password: str = Field(..., min_length=8)
+    password: str
 
 
 class LoginRequest(BaseModel):
     """Login request."""
     email: EmailStr
     password: str
+
+
+class SendEmailCodeRequest(BaseModel):
+    """Send one-time login code to email."""
+    email: EmailStr
+
+
+class VerifyEmailCodeRequest(BaseModel):
+    """Verify one-time login code."""
+    email: EmailStr
+    code: str = Field(..., pattern=r"^\d{6}$")
 
 
 class RefreshTokenRequest(BaseModel):
@@ -43,7 +54,7 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     """Password reset request."""
     token: str
-    new_password: str = Field(..., min_length=8)
+    new_password: str
 
 
 class AppleSignInRequest(BaseModel):
@@ -81,12 +92,23 @@ class RegisterResponse(BaseModel):
     trial_expires_at: datetime
 
 
+class SendEmailCodeResponse(BaseModel):
+    """Send email code response."""
+    message: str
+    expires_in: int
+
+
 class LoginResponse(BaseModel):
     """Login response with tokens."""
     access_token: str
     refresh_token: str
     expires_in: int
     user: UserResponse
+
+
+class EmailCodeLoginResponse(LoginResponse):
+    """Email code login response."""
+    is_new_user: bool
 
 
 class RefreshTokenResponse(BaseModel):

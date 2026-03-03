@@ -111,12 +111,13 @@ async def auth_db_session():
     """
     from sqlalchemy import event
 
-    from app.models.refresh_token import PasswordResetToken, RefreshToken
+    from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
 
     # Import models to ensure they're available
     User  # noqa: B018
     PasswordResetToken  # noqa: B018
     RefreshToken  # noqa: B018
+    EmailLoginCode  # noqa: B018
 
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
@@ -141,6 +142,9 @@ async def auth_db_session():
         await conn.run_sync(
             lambda sync_conn: PasswordResetToken.__table__.create(sync_conn)
         )
+        await conn.run_sync(
+            lambda sync_conn: EmailLoginCode.__table__.create(sync_conn)
+        )
 
     async_session = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
@@ -151,6 +155,7 @@ async def auth_db_session():
         original_user_init = User.__init__
         original_refresh_init = RefreshToken.__init__
         original_reset_init = PasswordResetToken.__init__
+        original_email_code_init = EmailLoginCode.__init__
 
         def patched_user_init(self, **kwargs):
             if "id" not in kwargs:
@@ -167,9 +172,15 @@ async def auth_db_session():
                 kwargs["id"] = uuid4()
             original_reset_init(self, **kwargs)
 
+        def patched_email_code_init(self, **kwargs):
+            if "id" not in kwargs:
+                kwargs["id"] = uuid4()
+            original_email_code_init(self, **kwargs)
+
         User.__init__ = patched_user_init
         RefreshToken.__init__ = patched_refresh_init
         PasswordResetToken.__init__ = patched_reset_init
+        EmailLoginCode.__init__ = patched_email_code_init
 
         try:
             yield session
@@ -178,6 +189,7 @@ async def auth_db_session():
             User.__init__ = original_user_init
             RefreshToken.__init__ = original_refresh_init
             PasswordResetToken.__init__ = original_reset_init
+            EmailLoginCode.__init__ = original_email_code_init
 
     await engine.dispose()
 
@@ -213,6 +225,21 @@ def mock_apple_verify():
 
         mock.side_effect = mock_verify
         yield mock
+
+
+@pytest_asyncio.fixture
+def mock_resend_email():
+    """Mock Resend email sending and capture codes."""
+    sent_codes: list[tuple[str, str]] = []
+
+    async def mock_send(_self, to_email: str, code: str):
+        sent_codes.append((to_email, code))
+
+    with patch(
+        "app.services.email_service.ResendEmailService.send_login_code",
+        new=mock_send,
+    ):
+        yield sent_codes
 
 
 @pytest_asyncio.fixture

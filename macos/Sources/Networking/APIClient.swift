@@ -3,12 +3,43 @@ import Core
 
 // MARK: - API Client Errors
 
-public enum APIError: Error, Sendable {
+public enum APIError: Error, Sendable, LocalizedError {
     case invalidURL
-    case unauthorized
-    case serverError(Int)
+    case unauthorized(String?)
+    case serverError(Int, String?)
     case networkError(Error)
     case decodingError(Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid URL"
+        case .unauthorized(let message):
+            return message ?? "Your session has expired. Please log in again."
+        case .serverError(let code, let message):
+            if let message = message {
+                return message
+            }
+            switch code {
+            case 400:
+                return "Invalid request. Please try again."
+            case 401:
+                return "Your session has expired. Please log in again."
+            case 403:
+                return "Access denied. Please check your subscription status."
+            case 404:
+                return "Content not found."
+            case 500...599:
+                return "Server error. Please try again later."
+            default:
+                return "An error occurred. Please try again."
+            }
+        case .networkError:
+            return "Could not connect to server. Please check your internet connection."
+        case .decodingError:
+            return "Received invalid data from server. Please try again."
+        }
+    }
 }
 
 // Keep legacy name so existing test references still compile.
@@ -75,7 +106,7 @@ public final class APIClient: @unchecked Sendable {
 
             guard let http = response as? HTTPURLResponse else {
                 print("[APIClient] ❌ Response is not HTTPURLResponse: \(response)")
-                throw APIError.serverError(0)
+                throw APIError.serverError(0, "Invalid response type")
             }
 
             print("[APIClient] 📡 Response status: \(http.statusCode)")
@@ -83,35 +114,44 @@ public final class APIClient: @unchecked Sendable {
             guard 200..<300 ~= http.statusCode else {
                 print("[APIClient] ❌ Server error: \(http.statusCode)")
 
-                // Try to decode error message from response
+                // Try to parse backend error message
+                var backendMessage: String?
                 if let errorMessage = String(data: data, encoding: .utf8) {
                     print("[APIClient] Error response: \(errorMessage)")
 
-                    // Auto-refresh token on 401 if token expired
-                    if http.statusCode == 401 && errorMessage.contains("Token expired") && !isRetry {
+                    // Try to parse JSON error response {"detail": "message"}
+                    if let errorData = errorMessage.data(using: .utf8),
+                       let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
+                       let detail = errorDict["detail"] as? String {
+                        backendMessage = detail
+                    }
+
+                    // Auto-refresh token once on 401 responses when we have a token.
+                    if http.statusCode == 401
+                        && authToken != nil
+                        && !isRetry
+                        && !path.contains("/api/v1/auth/refresh")
+                    {
                         print("[APIClient] 🔄 Token expired, attempting refresh and retry...")
 
-                        // Import AuthManager to refresh token
-                        // Note: This creates a dependency cycle that should be resolved by using a protocol
-                        // For now, we'll add the refresh logic here
-                        do {
-                            // Try to refresh token via notification
-                            await MainActor.run {
-                                NotificationCenter.default.post(name: .refreshAuthToken, object: nil)
-                            }
-
-                            // Wait a bit for token refresh
-                            try await Task.sleep(for: .milliseconds(500))
-
-                            // Retry the request once
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: .refreshAuthToken, object: nil)
+                        }
+                        let refreshed = await waitForTokenRefreshResult()
+                        if refreshed {
                             return try await request(path, method: method, body: body, isRetry: true)
-                        } catch {
-                            print("[APIClient] ❌ Token refresh failed: \(error)")
+                        } else {
+                            print("[APIClient] ❌ Token refresh failed or timed out")
                         }
                     }
                 }
 
-                throw APIError.serverError(http.statusCode)
+                // Throw appropriate error with parsed message
+                if http.statusCode == 401 {
+                    throw APIError.unauthorized(backendMessage)
+                } else {
+                    throw APIError.serverError(http.statusCode, backendMessage)
+                }
             }
 
             return data
@@ -121,6 +161,34 @@ public final class APIClient: @unchecked Sendable {
             print("[APIClient] ❌ Network error: \(error.localizedDescription)")
             throw APIError.networkError(error)
         }
+    }
+
+    private func waitForTokenRefreshResult(timeout: Duration = .seconds(5)) async -> Bool {
+        let refreshTask = Task<Bool, Never> {
+            for await notification in NotificationCenter.default.notifications(
+                named: .authTokenRefreshCompleted
+            ) {
+                return notification.userInfo?["success"] as? Bool ?? false
+            }
+            return false
+        }
+
+        let timeoutTask = Task<Bool, Never> {
+            try? await Task.sleep(for: timeout)
+            return false
+        }
+
+        let result = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await refreshTask.value }
+            group.addTask { await timeoutTask.value }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+
+        refreshTask.cancel()
+        timeoutTask.cancel()
+        return result
     }
 
     // MARK: - Content Endpoints
@@ -149,8 +217,8 @@ public final class APIClient: @unchecked Sendable {
     }
 
     /// List content items with pagination.
-    public func listContents(skip: Int = 0, limit: Int = 50) async throws -> [Content] {
-        let data = try await request("/api/v1/content/?skip=\(skip)&limit=\(limit)")
+    public func listContents(offset: Int = 0, limit: Int = 50) async throws -> [Content] {
+        let data = try await request("/api/v1/content/?offset=\(offset)&limit=\(limit)")
         return try JSONDecoder.apiDecoder.decode([Content].self, from: data)
     }
 
@@ -214,7 +282,7 @@ public final class APIClient: @unchecked Sendable {
 
     /// Fetch user's tag library with content counts.
     public func fetchUserTags() async throws -> [UserTag] {
-        let data = try await request("/api/v1/tags")
+        let data = try await request("/api/v1/tags/")
         return try JSONDecoder.apiDecoder.decode([UserTag].self, from: data)
     }
 
@@ -224,7 +292,7 @@ public final class APIClient: @unchecked Sendable {
     public func createTag(name: String) async throws -> UserTag {
         struct Req: Encodable { let tag_name: String }
         let payload = try JSONEncoder().encode(Req(tag_name: name))
-        let data = try await request("/api/v1/tags", method: "POST", body: payload)
+        let data = try await request("/api/v1/tags/", method: "POST", body: payload)
         return try JSONDecoder.apiDecoder.decode(UserTag.self, from: data)
     }
 
@@ -302,6 +370,7 @@ public struct ParagraphResponse: Codable, Sendable {
 
 extension Notification.Name {
     public static let refreshAuthToken = Notification.Name("refreshAuthToken")
+    public static let authTokenRefreshCompleted = Notification.Name("authTokenRefreshCompleted")
 }
 
 // MARK: - JSON Decoder Extension

@@ -54,7 +54,7 @@ async def verify_apple_identity_token(identity_token: str) -> dict:
         if not apple_id:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid identity token: missing subject claim"
+                detail="Apple Sign In failed. Please try again."
             )
 
         return {
@@ -66,25 +66,27 @@ async def verify_apple_identity_token(identity_token: str) -> dict:
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=401,
-            detail="Apple identity token has expired"
+            detail="Apple Sign In session expired. Please try again."
         )
     except jwt.InvalidAudienceError:
         raise HTTPException(
             status_code=401,
-            detail="Invalid identity token: audience mismatch"
+            detail="Apple Sign In failed. Please try again."
         )
     except jwt.InvalidIssuerError:
         raise HTTPException(
             status_code=401,
-            detail="Invalid identity token: issuer mismatch"
+            detail="Apple Sign In failed. Please try again."
         )
-    except jwt.PyJWTError as e:
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid Apple identity token: {str(e)}"
+            detail="Apple Sign In failed. Please try again."
         )
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to verify Apple identity token: {str(e)}"
+            detail="Apple Sign In failed. Please contact support if this continues."
         )

@@ -93,20 +93,29 @@ def validate_password(password: str) -> tuple[bool, str | None]:
         >>> validate_password("Test1234")
         (True, None)
     """
+    # Collect all failed requirements
+    requirements = []
+
     if len(password) < settings.min_password_length:
-        return (
-            False,
-            f"Password must be at least {settings.min_password_length} characters",
-        )
+        requirements.append(f"at least {settings.min_password_length} characters")
 
     if settings.require_password_uppercase and not any(c.isupper() for c in password):
-        return False, "Password must contain at least one uppercase letter"
+        requirements.append("one uppercase letter")
 
     if settings.require_password_lowercase and not any(c.islower() for c in password):
-        return False, "Password must contain at least one lowercase letter"
+        requirements.append("one lowercase letter")
 
     if settings.require_password_digit and not any(c.isdigit() for c in password):
-        return False, "Password must contain at least one digit"
+        requirements.append("one number")
+
+    # If any requirements failed, return combined message
+    if requirements:
+        if len(requirements) == 1:
+            return False, f"Password must include {requirements[0]}."
+        else:
+            # Join requirements with commas and "and" for the last one
+            requirements_str = ", ".join(requirements[:-1]) + f", and {requirements[-1]}"
+            return False, f"Password must include {requirements_str}."
 
     return True, None
 
@@ -122,6 +131,7 @@ def create_access_token(user_id: str) -> str:
     - sub: user_id
     - exp: expiration time (15 minutes from now)
     - iat: issued at time (current time)
+    - jti: unique token ID
     - type: "access"
 
     Args:
@@ -144,6 +154,7 @@ def create_access_token(user_id: str) -> str:
         "sub": user_id,
         "exp": expire,
         "iat": now,
+        "jti": secrets.token_urlsafe(16),
         "type": "access",
     }
 
@@ -159,6 +170,7 @@ def create_refresh_token(user_id: str) -> str:
     - sub: user_id
     - exp: expiration time (30 days from now)
     - iat: issued at time (current time)
+    - jti: unique token ID
     - type: "refresh"
 
     Args:
@@ -181,6 +193,7 @@ def create_refresh_token(user_id: str) -> str:
         "sub": user_id,
         "exp": expire,
         "iat": now,
+        "jti": secrets.token_urlsafe(16),
         "type": "refresh",
     }
 

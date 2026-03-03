@@ -190,7 +190,14 @@ final class CommandBarService {
                 }
             }
         } catch {
-            aiCoordinator.errorMessage = "Cloud search failed: \(error.localizedDescription)"
+            // Show user-friendly error message
+            if let apiError = error as? APIError {
+                aiCoordinator.errorMessage = apiError.localizedDescription
+            } else if let urlError = error as? URLError {
+                aiCoordinator.errorMessage = "Could not search. Please check your internet connection."
+            } else {
+                aiCoordinator.errorMessage = "Search failed. Please try again."
+            }
         }
     }
 
@@ -226,7 +233,7 @@ final class CommandBarService {
                 }
             }
         } catch {
-            aiCoordinator.errorMessage = "Local search failed: \(error.localizedDescription)"
+            aiCoordinator.errorMessage = "Local search failed. Please try again."
         }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Core
 import Networking
@@ -20,6 +21,8 @@ struct ReadlessApp: App {
                     .environment(authService)
                     .environment(aiCoordinator)
                     .environment(tagManager)
+                    // Reliably expand the window back to content size after login
+                    .background(MainWindowSizer())
                     .overlay {
                         if aiCoordinator.isCommandBarVisible {
                             Color.black.opacity(0.3)
@@ -493,6 +496,33 @@ struct AccountSettingsView: View {
             return "Pro"
         case .expired:
             return "Expired"
+        }
+    }
+}
+
+// MARK: - Main Window Sizer
+//
+// Expands the window to main content dimensions after login, using
+// viewDidMoveToWindow for reliable window access (NSApp.keyWindow can
+// be nil during view transitions).
+
+private struct MainWindowSizer: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { SizerView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class SizerView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, !window.isSheet else { return }
+            DispatchQueue.main.async { [weak window] in
+                guard let window else { return }
+                // Only expand if the window is currently login-sized
+                let current = window.frame.size
+                if current.width < 700 || current.height < 600 {
+                    window.setContentSize(NSSize(width: 900, height: 650))
+                    window.center()
+                }
+            }
         }
     }
 }

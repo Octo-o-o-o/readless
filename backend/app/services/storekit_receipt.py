@@ -65,7 +65,7 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
         if not transaction_id or not product_id:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid receipt: missing transaction or product ID"
+                detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
             )
 
         # Map product ID to subscription tier
@@ -73,7 +73,7 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
         if not subscription_tier:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown product ID: {product_id}"
+                detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
             )
 
         # Convert timestamps (milliseconds to datetime)
@@ -102,17 +102,19 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
     except jwt.InvalidSignatureError:
         raise HTTPException(
             status_code=400,
-            detail="Invalid receipt: signature verification failed"
+            detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
         )
-    except jwt.PyJWTError as e:
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid receipt: {str(e)}"
+            detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
         )
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to verify receipt: {str(e)}"
+            detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
         )
 
 
@@ -120,4 +122,8 @@ def is_subscription_active(expires_date: datetime | None) -> bool:
     """Check if subscription is currently active."""
     if not expires_date:
         return False
+    if expires_date.tzinfo is None:
+        expires_date = expires_date.replace(tzinfo=UTC)
+    else:
+        expires_date = expires_date.astimezone(UTC)
     return expires_date > datetime.now(UTC)

@@ -319,15 +319,40 @@ async def get_contents_by_tag(
     result = await db.execute(query)
     contents = result.scalars().all()
 
+    if not contents:
+        return []
+
+    # Batch-fetch tags for all matched contents (avoids N+1 queries)
+    content_ids = [content.id for content in contents]
+    tag_query = (
+        select(ContentTag.content_id, UserTag.tag_name)
+        .join(UserTag, ContentTag.tag_id == UserTag.id)
+        .where(
+            ContentTag.content_id.in_(content_ids),
+            UserTag.deleted_at.is_(None),
+        )
+    )
+    tag_result = await db.execute(tag_query)
+    tags_by_content: dict[str, list[str]] = {}
+    for content_id, tag_name in tag_result.all():
+        tags_by_content.setdefault(content_id, []).append(tag_name)
+
     return [
         ContentResponse(
             id=content.id,
             title=content.title,
-            url=content.url,
-            content_type=content.content_type,
+            source_url=content.source_url,
+            source_type=content.source_type,
+            source_app_name=content.source_app_name,
+            source_app_bundle_id=content.source_app_bundle_id,
+            source_language=content.source_language,
             l0_summary=content.l0_summary,
-            l1_summary_json=content.l1_summary_json,
+            l1_outline=content.l1_outline,
+            tags=tags_by_content.get(content.id, []),
+            status=content.status,
             created_at=content.created_at,
+            updated_at=content.updated_at,
+            full_text=content.full_text,
         )
         for content in contents
     ]

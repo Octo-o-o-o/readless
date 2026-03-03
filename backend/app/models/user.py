@@ -1,6 +1,6 @@
 """User model for authentication and subscription management."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 
@@ -10,6 +10,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.database import Base
+
+
+def _to_utc(dt: datetime) -> datetime:
+    """Normalize datetimes to UTC, handling naive values from SQLite/tests."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 class SubscriptionTier(str, Enum):
@@ -60,28 +67,26 @@ class User(Base):
 
     def is_subscription_active(self) -> bool:
         """Check if user has active subscription or trial."""
-        from datetime import timezone
         now = datetime.now(timezone.utc)
 
-        if self.subscription_expires_at and self.subscription_expires_at > now:
+        if self.subscription_expires_at and _to_utc(self.subscription_expires_at) > now:
             return True
 
-        if self.trial_expires_at and self.trial_expires_at > now:
+        if self.trial_expires_at and _to_utc(self.trial_expires_at) > now:
             return True
 
         return False
 
     def get_effective_tier(self) -> str:
         """Get current effective subscription tier."""
-        from datetime import timezone
         now = datetime.now(timezone.utc)
 
         # Check paid subscription first
-        if self.subscription_expires_at and self.subscription_expires_at > now:
+        if self.subscription_expires_at and _to_utc(self.subscription_expires_at) > now:
             return self.subscription_tier
 
         # Check trial
-        if self.trial_expires_at and self.trial_expires_at > now:
+        if self.trial_expires_at and _to_utc(self.trial_expires_at) > now:
             return "trial"
 
         return "expired"

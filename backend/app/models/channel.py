@@ -8,7 +8,7 @@ from sqlalchemy import (
     String,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID as pgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -18,7 +18,7 @@ class Channel(Base):
     __tablename__ = "channels"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    user_id: Mapped[str] = mapped_column(pgUUID(as_uuid=False), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
