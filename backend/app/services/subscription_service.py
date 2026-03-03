@@ -6,7 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
-from app.services.storekit_receipt import verify_storekit_receipt, is_subscription_active
+from app.services.storekit_receipt import (
+    is_subscription_active,
+    verify_storekit_receipt,
+)
 
 
 class SubscriptionService:
@@ -80,7 +83,11 @@ class SubscriptionService:
             "is_trial": is_trial,
             "trial_expires_at": user.trial_expires_at,
             "subscription_expires_at": user.subscription_expires_at,
-            "product_id": self._tier_to_product_id(user.subscription_tier) if subscription_active else None,
+            "product_id": (
+                self._tier_to_product_id(user.subscription_tier)
+                if subscription_active
+                else None
+            ),
             "auto_renew_enabled": True,  # TODO: Get from latest receipt
         }
 

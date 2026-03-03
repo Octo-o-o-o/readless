@@ -1,12 +1,15 @@
-"""Podcast generation service: script generation via OpenAI-compatible API, audio via ElevenLabs."""
+"""Podcast generation service.
+
+Script generation via OpenAI-compatible API, audio via ElevenLabs.
+"""
 
 import asyncio
 import json
 import re
 import uuid
 
-import openai
 import httpx
+import openai
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -79,7 +82,8 @@ class PodcastService:
             messages=[
                 {
                     "role": "user",
-                    "content": f"""Create a podcast dialogue script for two hosts discussing this content.
+                    "content": f"""Create a podcast dialogue script \
+for two hosts discussing this content.
 
 TITLE: {content.title}
 SUMMARY: {content.l0_summary}

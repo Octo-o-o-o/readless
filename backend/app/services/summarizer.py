@@ -230,10 +230,17 @@ class SummarizationService:
 
         # 2. Build tag instruction based on user's library
         if available_tags:
-            tag_instruction = f"""- "tags": Select 0-3 most relevant tags from the user's tag library: {available_tags}
-  If none of the tags are relevant, return an empty array."""
+            tag_instruction = (
+                f'- "tags": Select 0-3 most relevant tags from'
+                f" the user's tag library: {available_tags}\n"
+                "  If none of the tags are relevant,"
+                " return an empty array."
+            )
         else:
-            tag_instruction = """- "tags": Empty array (user has no tags in their library yet)."""
+            tag_instruction = (
+                '- "tags": Empty array'
+                " (user has no tags in their library yet)."
+            )
 
         # 3. Build numbered paragraphs for anchoring
         numbered_paragraphs = [f"¶{i+1}: {p}" for i, p in enumerate(paragraphs)]
@@ -244,7 +251,8 @@ class SummarizationService:
         lang_note = "Chinese" if has_chinese else "English"
 
         # 4. Build system prompt with tag instruction
-        system_prompt = f"""You are a professional content analyst. Generate a multi-level summary in {lang_note}.
+        system_prompt = f"""You are a professional content analyst. \
+Generate a multi-level summary in {lang_note}.
 
 Return a JSON object with:
 - "l0_summary": one-line summary (≤30 Chinese chars or ≤60 English chars).

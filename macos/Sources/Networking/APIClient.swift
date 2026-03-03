@@ -232,14 +232,9 @@ public final class APIClient: @unchecked Sendable {
     }
 
     /// Get a single content item by ID.
-    public func getContent(id: String) async throws -> Content {
+    public func fetchContent(id: String) async throws -> Content {
         let data = try await request("/api/v1/content/\(id)")
         return try JSONDecoder.apiDecoder.decode(Content.self, from: data)
-    }
-
-    /// Fetch a single content item by ID (alias for getContent for consistency).
-    public func fetchContent(id: String) async throws -> Content {
-        return try await getContent(id: id)
     }
 
     /// Get all paragraphs for a content item, ordered by position.

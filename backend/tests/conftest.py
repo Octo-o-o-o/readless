@@ -37,7 +37,7 @@ async def db_session():
                 """
                 CREATE TABLE user_tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id VARCHAR(100) NOT NULL,
+                    user_id TEXT NOT NULL,
                     tag_name VARCHAR(50) NOT NULL,
                     deleted_at TIMESTAMP,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -64,7 +64,7 @@ async def db_session():
                     source_language VARCHAR(10),
                     full_text TEXT,
                     full_text_tsv TEXT,
-                    user_id VARCHAR(100) NOT NULL,
+                    user_id TEXT NOT NULL,
                     status VARCHAR(20) NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -78,7 +78,7 @@ async def db_session():
                 CREATE TABLE content_tags (
                     content_id VARCHAR(36) NOT NULL,
                     tag_id INTEGER NOT NULL,
-                    user_id VARCHAR(100) NOT NULL,
+                    user_id TEXT NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (content_id, tag_id),
                     FOREIGN KEY (content_id) REFERENCES contents (id) ON DELETE CASCADE,
@@ -111,7 +111,11 @@ async def auth_db_session():
     """
     from sqlalchemy import event
 
-    from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
+    from app.models.refresh_token import (
+        EmailLoginCode,
+        PasswordResetToken,
+        RefreshToken,
+    )
 
     # Import models to ensure they're available
     User  # noqa: B018
@@ -150,46 +154,27 @@ async def auth_db_session():
         engine, class_=AsyncSession, expire_on_commit=False
     )
 
+    # Patch models to auto-generate UUIDs for SQLite (no gen_random_uuid()).
+    # Store originals and build patched versions in a loop.
+    models_to_patch = [User, RefreshToken, PasswordResetToken, EmailLoginCode]
+    originals = {model: model.__init__ for model in models_to_patch}
+
+    def _make_patched_init(original_init):
+        def patched_init(self, **kwargs):
+            if "id" not in kwargs:
+                kwargs["id"] = uuid4()
+            original_init(self, **kwargs)
+        return patched_init
+
+    for model in models_to_patch:
+        model.__init__ = _make_patched_init(originals[model])
+
     async with async_session() as session:
-        # Patch all models to auto-generate UUIDs for SQLite (no gen_random_uuid())
-        original_user_init = User.__init__
-        original_refresh_init = RefreshToken.__init__
-        original_reset_init = PasswordResetToken.__init__
-        original_email_code_init = EmailLoginCode.__init__
-
-        def patched_user_init(self, **kwargs):
-            if "id" not in kwargs:
-                kwargs["id"] = uuid4()
-            original_user_init(self, **kwargs)
-
-        def patched_refresh_init(self, **kwargs):
-            if "id" not in kwargs:
-                kwargs["id"] = uuid4()
-            original_refresh_init(self, **kwargs)
-
-        def patched_reset_init(self, **kwargs):
-            if "id" not in kwargs:
-                kwargs["id"] = uuid4()
-            original_reset_init(self, **kwargs)
-
-        def patched_email_code_init(self, **kwargs):
-            if "id" not in kwargs:
-                kwargs["id"] = uuid4()
-            original_email_code_init(self, **kwargs)
-
-        User.__init__ = patched_user_init
-        RefreshToken.__init__ = patched_refresh_init
-        PasswordResetToken.__init__ = patched_reset_init
-        EmailLoginCode.__init__ = patched_email_code_init
-
         try:
             yield session
         finally:
-            # Restore original __init__ methods
-            User.__init__ = original_user_init
-            RefreshToken.__init__ = original_refresh_init
-            PasswordResetToken.__init__ = original_reset_init
-            EmailLoginCode.__init__ = original_email_code_init
+            for model, original_init in originals.items():
+                model.__init__ = original_init
 
     await engine.dispose()
 

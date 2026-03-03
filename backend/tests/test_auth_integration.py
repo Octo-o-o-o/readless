@@ -12,15 +12,14 @@ Tests complete end-to-end authentication workflows:
 All tests use in-memory SQLite database and mock external services.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 
-from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
+from app.models.refresh_token import EmailLoginCode, RefreshToken
 from app.models.user import User
-
 
 # ==================== Registration Tests ====================
 
@@ -60,8 +59,14 @@ async def test_complete_registration_flow(test_client, auth_db_session):
 
     # Verify trial period is ~7 days
     # SQLite doesn't preserve timezone info, so make trial_expires_at aware
-    trial_expires_aware = user.trial_expires_at.replace(tzinfo=UTC) if user.trial_expires_at.tzinfo is None else user.trial_expires_at
-    trial_duration_days = (trial_expires_aware - datetime.now(UTC)).total_seconds() / 86400
+    if user.trial_expires_at.tzinfo is None:
+        trial_expires_aware = user.trial_expires_at.replace(tzinfo=UTC)
+    else:
+        trial_expires_aware = user.trial_expires_at
+    trial_duration_days = (
+        (trial_expires_aware - datetime.now(UTC)).total_seconds()
+        / 86400
+    )
     assert 6.9 < trial_duration_days < 7.1
 
 
@@ -414,7 +419,9 @@ async def test_apple_signin_new_user(test_client, mock_apple_verify, auth_db_ses
 
 
 @pytest.mark.asyncio
-async def test_apple_signin_existing_user(test_client, mock_apple_verify, auth_db_session):
+async def test_apple_signin_existing_user(
+    test_client, mock_apple_verify, auth_db_session
+):
     """Test Apple Sign In returns existing user."""
     # First sign in (creates user)
     await test_client.post(

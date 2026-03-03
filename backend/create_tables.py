@@ -4,8 +4,8 @@
 import asyncio
 
 from app.database import Base, get_engine
+
 # Import all models to register them with Base.metadata
-from app.models import Channel, Content, Paragraph, Podcast
 
 
 async def create_tables():

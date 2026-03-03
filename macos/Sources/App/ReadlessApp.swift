@@ -452,7 +452,7 @@ struct AccountSettingsView: View {
                             Text("Current Plan")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Text(tierDisplayName(user.subscriptionTier))
+                            Text(user.subscriptionTier.displayName)
                                 .font(.headline)
                         }
 
@@ -486,18 +486,6 @@ struct AccountSettingsView: View {
         }
     }
 
-    private func tierDisplayName(_ tier: SubscriptionTier) -> String {
-        switch tier {
-        case .trial:
-            return "Trial"
-        case .basic:
-            return "Basic"
-        case .pro:
-            return "Pro"
-        case .expired:
-            return "Expired"
-        }
-    }
 }
 
 // MARK: - Main Window Sizer

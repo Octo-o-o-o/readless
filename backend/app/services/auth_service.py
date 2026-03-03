@@ -15,10 +15,10 @@ Passwords are hashed using bcrypt (cost factor 12).
 JWT tokens use HS256 with configurable expiry.
 """
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import secrets
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from jwt import InvalidTokenError
@@ -37,15 +37,8 @@ from app.auth_utils import (
 )
 from app.config import settings
 from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
-from app.models.user import User
+from app.models.user import User, _to_utc
 from app.services.email_service import ResendEmailService
-
-
-def _to_utc(dt: datetime) -> datetime:
-    """Normalize datetimes to UTC, handling naive values from SQLite/tests."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 
 
 def _normalize_email(email: str) -> str:
@@ -101,7 +94,10 @@ class AuthService:
         )
         existing_user = result.scalars().first()
         if existing_user:
-            raise ValueError("An account with this email already exists. Try logging in instead.")
+            raise ValueError(
+                "An account with this email already exists."
+                " Try logging in instead."
+            )
 
         # Hash password
         password_hash = hash_password(password)
@@ -110,7 +106,7 @@ class AuthService:
         verification_token = generate_verification_token()
 
         # Calculate trial expiry (7 days from now)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         trial_expires = now + timedelta(days=7)
 
         # Create user
@@ -169,7 +165,7 @@ class AuthService:
             raise ValueError("Invalid email or password")
 
         # Update last login time
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user.last_login_at = now
 
         # Generate tokens
@@ -210,7 +206,7 @@ class AuthService:
             ValueError: If sending too frequently or email delivery fails
         """
         normalized_email = _normalize_email(email)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Basic anti-spam: throttle resend interval per email.
         latest_result = await self.db.execute(
@@ -239,14 +235,18 @@ class AuthService:
         code_record = EmailLoginCode(
             email=normalized_email,
             code_hash=self._hash_email_login_code(normalized_email, code),
-            expires_at=now + timedelta(minutes=settings.email_login_code_expire_minutes),
+            expires_at=now + timedelta(
+                minutes=settings.email_login_code_expire_minutes,
+            ),
         )
         self.db.add(code_record)
         await self.db.commit()
         await self.db.refresh(code_record)
 
         try:
-            await self.email_service.send_login_code(to_email=normalized_email, code=code)
+            await self.email_service.send_login_code(
+                to_email=normalized_email, code=code,
+            )
         except ValueError:
             await self.db.execute(
                 delete(EmailLoginCode).where(EmailLoginCode.id == code_record.id)
@@ -268,7 +268,7 @@ class AuthService:
             Tuple of (user, access_token, refresh_token, is_new_user)
         """
         normalized_email = _normalize_email(email)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         result = await self.db.execute(
             select(EmailLoginCode).where(
@@ -294,7 +294,10 @@ class AuthService:
 
         # Find existing user by email or create a new trial user.
         user_result = await self.db.execute(
-            select(User).where(User.email == normalized_email, User.deleted_at.is_(None))
+            select(User).where(
+                User.email == normalized_email,
+                User.deleted_at.is_(None),
+            )
         )
         user = user_result.scalars().first()
         is_new_user = False
@@ -364,7 +367,7 @@ class AuthService:
             raise ValueError("Your session has expired. Please log in again.")
 
         # Check token not expired (double-check DB expiry)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if _to_utc(token_record.expires_at) < now:
             raise ValueError("Your session has expired. Please log in again.")
 
@@ -510,7 +513,7 @@ class AuthService:
         token = generate_password_reset_token()
 
         # Calculate expiry (1 hour from now)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = now + timedelta(hours=1)
 
         # Store token
@@ -558,9 +561,12 @@ class AuthService:
             raise ValueError("Invalid or already used reset token")
 
         # Check token not expired
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if reset_token.expires_at < now:
-            raise ValueError("Password reset link has expired. Please request a new one.")
+            raise ValueError(
+                "Password reset link has expired."
+                " Please request a new one."
+            )
 
         # Find user
         result = await self.db.execute(
@@ -614,7 +620,7 @@ class AuthService:
             raise ValueError("User not found")
 
         # Soft delete user
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user.deleted_at = now
 
         # Revoke all refresh tokens
@@ -644,7 +650,8 @@ class AuthService:
             Tuple of (user, access_token, refresh_token, is_new_user)
 
         Raises:
-            HTTPException: If Apple token verification fails (from verify_apple_identity_token)
+            HTTPException: If Apple token verification fails
+                (from verify_apple_identity_token)
             ValueError: If database operation fails
         """
         from app.services.apple_auth import verify_apple_identity_token
@@ -665,7 +672,7 @@ class AuthService:
 
         if not user:
             # Create new user
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             user = User(
                 apple_id=apple_id,
                 email=email,
@@ -677,21 +684,18 @@ class AuthService:
             is_new_user = True
         else:
             # Update last login
-            user.last_login_at = datetime.now(timezone.utc)
+            user.last_login_at = datetime.now(UTC)
 
         await self.db.commit()
         await self.db.refresh(user)
 
         # Generate tokens
-        access_token = create_access_token(
-            user_id=str(user.id)
-        )
-        refresh_token_str = create_refresh_token(
-            user_id=str(user.id)
-        )
+        user_id_str = str(user.id)
+        access_token = create_access_token(user_id_str)
+        refresh_token_str = create_refresh_token(user_id_str)
 
         # Store refresh token
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         refresh_token = RefreshToken(
             token=refresh_token_str,
             user_id=user.id,

@@ -17,7 +17,8 @@ class ResendEmailService:
 
         if not api_key or not from_email:
             raise ValueError(
-                "Email service is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL."
+                "Email service is not configured."
+                " Set RESEND_API_KEY and RESEND_FROM_EMAIL."
             )
 
         subject = "Your Readless verification code"
@@ -47,4 +48,7 @@ class ResendEmailService:
             response = await client.post(self.API_URL, json=payload, headers=headers)
 
         if response.status_code >= 400:
-            raise ValueError("Failed to send verification code email. Please try again.")
+            raise ValueError(
+                "Failed to send verification code email."
+                " Please try again."
+            )

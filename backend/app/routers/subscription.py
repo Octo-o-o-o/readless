@@ -28,7 +28,10 @@ async def verify_receipt(
     try:
         user_uuid = UUID(user_id)
     except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid session. Please log in again.",
+        )
 
     try:
         result = await subscription_service.verify_and_update_subscription(
@@ -54,7 +57,10 @@ async def get_status(
     try:
         user_uuid = UUID(user_id)
     except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid session. Please log in again.",
+        )
 
     try:
         result = await subscription_service.get_subscription_status(

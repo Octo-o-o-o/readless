@@ -45,4 +45,14 @@ public enum SubscriptionTier: String, Codable, Sendable {
     case basic
     case pro
     case expired
+
+    /// Human-readable display name for UI presentation.
+    public var displayName: String {
+        switch self {
+        case .trial: return "Trial"
+        case .basic: return "Basic"
+        case .pro: return "Pro"
+        case .expired: return "Expired"
+        }
+    }
 }

@@ -78,7 +78,8 @@ final class StoreManager {
     // MARK: - Private State
 
     /// Background task listening to transaction updates
-    private nonisolated(unsafe) var transactionListener: Task<Void, Never>?
+    @ObservationIgnored
+    private var transactionListener: Task<Void, Never>?
 
     // MARK: - Initialization
 

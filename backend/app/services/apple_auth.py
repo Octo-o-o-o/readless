@@ -36,8 +36,8 @@ async def verify_apple_identity_token(identity_token: str) -> dict:
             identity_token,
             signing_key.key,
             algorithms=["RS256"],
-            audience=settings.apple_bundle_id,  # Your app's bundle ID
-            issuer="https://appleid.apple.com",  # Apple's issuer
+            audience=settings.apple_bundle_id,
+            issuer="https://appleid.apple.com",
             options={
                 "verify_signature": True,
                 "verify_exp": True,
@@ -46,7 +46,6 @@ async def verify_apple_identity_token(identity_token: str) -> dict:
             }
         )
 
-        # Extract user information
         apple_id = payload.get("sub")
         email = payload.get("email")
         email_verified = payload.get("email_verified", "false") == "true"
@@ -67,16 +66,6 @@ async def verify_apple_identity_token(identity_token: str) -> dict:
         raise HTTPException(
             status_code=401,
             detail="Apple Sign In session expired. Please try again."
-        )
-    except jwt.InvalidAudienceError:
-        raise HTTPException(
-            status_code=401,
-            detail="Apple Sign In failed. Please try again."
-        )
-    except jwt.InvalidIssuerError:
-        raise HTTPException(
-            status_code=401,
-            detail="Apple Sign In failed. Please try again."
         )
     except jwt.PyJWTError:
         raise HTTPException(

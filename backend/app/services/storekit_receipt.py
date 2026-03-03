@@ -36,6 +36,12 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
     Raises:
         HTTPException: If receipt is invalid or verification fails
     """
+    _fail_msg = (
+        "Subscription verification failed."
+        " Please try 'Restore Purchases'"
+        " or contact support."
+    )
+
     try:
         # Fetch App Store's public keys
         jwks_client = PyJWKClient(APPSTORE_JWKS_URL, cache_keys=True)
@@ -65,7 +71,7 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
         if not transaction_id or not product_id:
             raise HTTPException(
                 status_code=400,
-                detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
+                detail=_fail_msg,
             )
 
         # Map product ID to subscription tier
@@ -73,7 +79,7 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
         if not subscription_tier:
             raise HTTPException(
                 status_code=400,
-                detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
+                detail=_fail_msg,
             )
 
         # Convert timestamps (milliseconds to datetime)
@@ -99,31 +105,25 @@ async def verify_storekit_receipt(jws_receipt: str) -> dict:
             "transaction_type": transaction_type,
         }
 
-    except jwt.InvalidSignatureError:
-        raise HTTPException(
-            status_code=400,
-            detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
-        )
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=400,
-            detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
+            detail=_fail_msg,
         )
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(
             status_code=500,
-            detail="Subscription verification failed. Please try 'Restore Purchases' or contact support."
+            detail=_fail_msg,
         )
 
 
 def is_subscription_active(expires_date: datetime | None) -> bool:
-    """Check if subscription is currently active."""
+    """Check if subscription is currently active based on expiration date."""
     if not expires_date:
         return False
+    # Normalize naive datetimes (e.g. from SQLite in tests) to UTC
     if expires_date.tzinfo is None:
         expires_date = expires_date.replace(tzinfo=UTC)
-    else:
-        expires_date = expires_date.astimezone(UTC)
     return expires_date > datetime.now(UTC)

@@ -63,7 +63,8 @@ class SearchAgent:
 Query: "{query}"
 
 Return JSON:
-{{"search_terms": ["keyword1", "keyword2"], "time_filter": "7d" or "30d" or null, "source_type": "url" or "pdf" or null}}
+{{"search_terms": ["keyword1", "keyword2"], "time_filter": "7d" or "30d" or null,
+"source_type": "url" or "pdf" or null}}
 
 JSON only.""",
                 }
@@ -82,7 +83,10 @@ JSON only.""",
         query_str = " ".join(terms) if terms else ""
 
         sql = """
-            SELECT *, ts_rank_cd(full_text_tsv, websearch_to_tsquery('simple', :query)) AS rank
+            SELECT *,
+                ts_rank_cd(full_text_tsv,
+                    websearch_to_tsquery('simple', :query)
+                ) AS rank
             FROM contents
             WHERE user_id = :user_id
               AND full_text_tsv @@ websearch_to_tsquery('simple', :query)
@@ -105,7 +109,8 @@ JSON only.""",
             tag_sql = """
                 SELECT * FROM contents
                 WHERE user_id = :user_id
-                  AND (tags && CAST(:terms AS text[]) OR keywords && CAST(:terms AS text[]))
+                  AND (tags && CAST(:terms AS text[])
+                    OR keywords && CAST(:terms AS text[]))
                 ORDER BY created_at DESC LIMIT 10
             """
             result = await db.execute(
@@ -158,14 +163,16 @@ Return JSON array of indices, most relevant first. JSON only.""",
             messages=[
                 {
                     "role": "user",
-                    "content": f"""Answer this question using ONLY the provided sources. Cite each source by title.
+                    "content": f"""Answer this question using ONLY the \
+provided sources. Cite each source by title.
 
 Question: {query}
 
 Sources:
 {context}
 
-If the answer spans multiple sources, synthesize them. If no source answers the question, say so.""",
+If the answer spans multiple sources, synthesize them. \
+If no source answers the question, say so.""",
                 }
             ],
         )

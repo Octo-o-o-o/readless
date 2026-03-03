@@ -104,7 +104,7 @@ struct SubscriptionView: View {
                     .font(.title2)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Current Plan: \(tierName(user.subscriptionTier))")
+                    Text("Current Plan: \(user.subscriptionTier.displayName)")
                         .font(.headline)
 
                     if let expiresAt = user.subscriptionExpiresAt {
@@ -266,78 +266,58 @@ struct SubscriptionView: View {
     }
 
     private func purchaseProduct(_ product: Product) async {
-        // Clear previous messages
-        errorMessage = nil
-        showSuccessMessage = false
-        successMessageTask?.cancel()
+        clearMessages()
 
         do {
             try await storeManager.purchase(product)
-
-            // Cancel any existing success message task
-            successMessageTask?.cancel()
-
-            // Show success message
-            successMessage = "Successfully subscribed to \(product.displayName)!"
-            showSuccessMessage = true
-
-            // Auto-dismiss after 3 seconds
-            successMessageTask = Task {
-                try? await Task.sleep(for: .seconds(3))
-                showSuccessMessage = false
-            }
-
+            showTemporarySuccess("Successfully subscribed to \(product.displayName)!")
         } catch SubscriptionError.purchaseCancelled {
-            // User cancelled, don't show error
             return
         } catch {
-            // Check if it's a network error
-            if let urlError = error as? URLError {
-                errorMessage = "Could not complete purchase. Please check your internet connection."
-            } else if let apiError = error as? APIError {
-                errorMessage = apiError.localizedDescription
-            } else {
-                errorMessage = "Purchase failed. Please try again or contact support if this continues."
-            }
+            errorMessage = userFacingMessage(for: error, fallback: "Purchase failed. Please try again or contact support if this continues.")
         }
     }
 
     private func restorePurchases() async {
-        // Clear previous messages
-        errorMessage = nil
-        showSuccessMessage = false
-        successMessageTask?.cancel()
+        clearMessages()
 
         do {
             try await storeManager.restorePurchases()
 
-            // Check if any purchases were restored
             if storeManager.hasActiveSubscription {
-                // Cancel any existing success message task
-                successMessageTask?.cancel()
-
-                successMessage = "Purchases restored successfully!"
-                showSuccessMessage = true
-
-                // Auto-dismiss after 3 seconds
-                successMessageTask = Task {
-                    try? await Task.sleep(for: .seconds(3))
-                    showSuccessMessage = false
-                }
+                showTemporarySuccess("Purchases restored successfully!")
             } else {
                 errorMessage = "No active subscriptions found to restore"
             }
-
         } catch {
-            // Check if it's a network error
-            if let urlError = error as? URLError {
-                errorMessage = "Could not restore purchases. Please check your internet connection."
-            } else if let apiError = error as? APIError {
-                errorMessage = apiError.localizedDescription
-            } else {
-                errorMessage = "Could not restore purchases. Please try again later."
-            }
+            errorMessage = userFacingMessage(for: error, fallback: "Could not restore purchases. Please try again later.")
         }
+    }
+
+    private func clearMessages() {
+        errorMessage = nil
+        showSuccessMessage = false
+        successMessageTask?.cancel()
+    }
+
+    private func showTemporarySuccess(_ message: String) {
+        successMessageTask?.cancel()
+        successMessage = message
+        showSuccessMessage = true
+        successMessageTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            showSuccessMessage = false
+        }
+    }
+
+    private func userFacingMessage(for error: Error, fallback: String) -> String {
+        if let apiError = error as? APIError {
+            return apiError.localizedDescription
+        }
+        if error is URLError {
+            return "Could not connect. Please check your internet connection."
+        }
+        return fallback
     }
 
     // MARK: - Helpers
@@ -362,19 +342,6 @@ struct SubscriptionView: View {
             return true
         }
         return false
-    }
-
-    private func tierName(_ tier: SubscriptionTier) -> String {
-        switch tier {
-        case .trial:
-            return "Trial"
-        case .basic:
-            return "Basic"
-        case .pro:
-            return "Pro"
-        case .expired:
-            return "Expired"
-        }
     }
 
     private func statusIcon(for tier: SubscriptionTier) -> String {

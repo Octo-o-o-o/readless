@@ -193,7 +193,7 @@ final class CommandBarService {
             // Show user-friendly error message
             if let apiError = error as? APIError {
                 aiCoordinator.errorMessage = apiError.localizedDescription
-            } else if let urlError = error as? URLError {
+            } else if error is URLError {
                 aiCoordinator.errorMessage = "Could not search. Please check your internet connection."
             } else {
                 aiCoordinator.errorMessage = "Search failed. Please try again."
@@ -302,16 +302,4 @@ final class CommandBarService {
         aiCoordinator.hideCommandBar()
     }
 
-    private func iconForSourceType(_ type: SourceType) -> String {
-        switch type {
-        case .text: return "doc.text"
-        case .url: return "link"
-        case .pdf: return "doc.fill"
-        case .image: return "photo"
-        case .clipboard: return "doc.on.clipboard"
-        case .folderWatch: return "folder"
-        case .email: return "envelope"
-        case .rss: return "antenna.radiowaves.left.and.right"
-        }
-    }
 }

@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user_id
@@ -19,8 +19,7 @@ from app.schemas.content import (
     FollowUpRequest,
     TextResponse,
 )
-from app.schemas.summary import OutlinePoint
-from app.schemas.summary import ContentSummary
+from app.schemas.summary import ContentSummary, OutlinePoint
 from app.services.extractor import ExtractedContent, ExtractedParagraph
 from app.services.pipeline import ProcessingPipeline
 from app.services.summarizer import SummarizationService
@@ -196,6 +195,38 @@ async def get_paragraphs(
     ]
 
 
+async def _get_extracted_content(
+    content_id: str,
+    user_id: str,
+    db: AsyncSession,
+) -> tuple[Content, ExtractedContent]:
+    """Load content and build ExtractedContent for summarizer operations.
+
+    Returns the ORM Content and its ExtractedContent representation.
+    Raises HTTPException 404 if content not found or not owned by user.
+    """
+    content = await db.get(Content, content_id)
+    if not content or content.user_id != user_id:
+        raise HTTPException(404, "Content not found")
+
+    paras_result = await db.execute(
+        select(Paragraph)
+        .where(Paragraph.content_id == content_id)
+        .order_by(Paragraph.position)
+    )
+    extracted = ExtractedContent(
+        title=content.title,
+        full_text=content.full_text or "",
+        paragraphs=[
+            ExtractedParagraph(
+                anchor_id=p.anchor_id, text=p.text, position=p.position
+            )
+            for p in paras_result.scalars()
+        ],
+    )
+    return content, extracted
+
+
 @router.post("/{content_id}/expand", response_model=TextResponse)
 async def expand_point(
     content_id: str,
@@ -204,28 +235,15 @@ async def expand_point(
     user_id: str = Depends(get_current_user_id),
 ):
     """Expand an outline point into a detailed explanation."""
-    content = await db.get(Content, content_id)
-    if not content or content.user_id != user_id:
-        raise HTTPException(404)
-    paras_result = await db.execute(
-        select(Paragraph)
-        .where(Paragraph.content_id == content_id)
-        .order_by(Paragraph.position)
-    )
-    paras = list(paras_result.scalars())
-    extracted = ExtractedContent(
-        title=content.title,
-        full_text=content.full_text or "",
-        paragraphs=[
-            ExtractedParagraph(
-                anchor_id=p.anchor_id, text=p.text, position=p.position
-            )
-            for p in paras
-        ],
-    )
+    content, extracted = await _get_extracted_content(content_id, user_id, db)
+
     outline = content.l1_outline or []
     if req.point_index >= len(outline):
-        raise HTTPException(400, f"Invalid outline point. Please select a valid point (0-{len(outline)-1}).")
+        raise HTTPException(
+            400,
+            f"Invalid outline point. Select a valid point (0-{len(outline)-1}).",
+        )
+
     point = OutlinePoint(**outline[req.point_index])
     detail = await _get_summarizer().expand_point(extracted, point)
     return TextResponse(text=detail)
@@ -239,25 +257,7 @@ async def ask_followup(
     user_id: str = Depends(get_current_user_id),
 ):
     """Answer a follow-up question based on the content."""
-    content = await db.get(Content, content_id)
-    if not content or content.user_id != user_id:
-        raise HTTPException(404)
-    paras_result = await db.execute(
-        select(Paragraph)
-        .where(Paragraph.content_id == content_id)
-        .order_by(Paragraph.position)
-    )
-    paras = list(paras_result.scalars())
-    extracted = ExtractedContent(
-        title=content.title,
-        full_text=content.full_text or "",
-        paragraphs=[
-            ExtractedParagraph(
-                anchor_id=p.anchor_id, text=p.text, position=p.position
-            )
-            for p in paras
-        ],
-    )
+    _, extracted = await _get_extracted_content(content_id, user_id, db)
     answer = await _get_summarizer().ask_followup(extracted, req.question)
     return TextResponse(text=answer)
 

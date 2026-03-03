@@ -1,6 +1,7 @@
 """Pydantic models for tag API requests and responses."""
 
 from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -22,4 +23,6 @@ class TagCreateRequest(BaseModel):
 class ContentTagsUpdateRequest(BaseModel):
     """Request body for updating content tags."""
 
-    tag_names: list[str] = Field(description="Complete list of tag names for this content")
+    tag_names: list[str] = Field(
+        description="Complete list of tag names for this content"
+    )

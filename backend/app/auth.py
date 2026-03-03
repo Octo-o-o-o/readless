@@ -1,8 +1,8 @@
 """JWT authentication dependency for FastAPI routes."""
 
-from jwt import InvalidTokenError
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import InvalidTokenError
 
 from app.auth_utils import verify_access_token
 from app.config import settings

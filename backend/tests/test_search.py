@@ -6,7 +6,6 @@ They verify schema validation, structural correctness, and route registration.
 
 import pytest
 
-
 # ------------------------------------------------------------------ #
 #  SearchRequest schema
 # ------------------------------------------------------------------ #

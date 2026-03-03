@@ -1,6 +1,6 @@
 """REST API routes for tag management."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, desc, func, select
@@ -98,7 +98,10 @@ async def create_tag(
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Tag '{req.tag_name}' was previously deleted. Please use a different name.",
+                detail=(
+                    f"Tag '{req.tag_name}' was previously deleted."
+                    " Please use a different name."
+                ),
             )
 
     # Create new tag
@@ -149,7 +152,7 @@ async def delete_tag(
         raise HTTPException(status_code=404, detail="Tag not found")
 
     # Soft delete the tag
-    tag.deleted_at = datetime.now(timezone.utc)
+    tag.deleted_at = datetime.now(UTC)
     await db.commit()
 
     # Note: ContentTag relationships will be CASCADE deleted automatically

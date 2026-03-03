@@ -1,7 +1,7 @@
 """User model for authentication and subscription management."""
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, String, Text
@@ -15,11 +15,11 @@ from app.database import Base
 def _to_utc(dt: datetime) -> datetime:
     """Normalize datetimes to UTC, handling naive values from SQLite/tests."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
-class SubscriptionTier(str, Enum):
+class SubscriptionTier(StrEnum):
     """Subscription tier enum."""
     TRIAL = "trial"
     BASIC = "basic"
@@ -39,7 +39,11 @@ class User(Base):
     )
 
     # Primary key
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
 
     # Authentication
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
@@ -49,7 +53,9 @@ class User(Base):
     # Subscription
     subscription_tier: Mapped[str] = mapped_column(String(20), default="trial")
     trial_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    subscription_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    subscription_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
 
     # Apple receipt tracking
     apple_original_transaction_id: Mapped[str | None] = mapped_column(String(255))
@@ -60,14 +66,20 @@ class User(Base):
     email_verification_token: Mapped[str | None] = mapped_column(String(64))
 
     # Audit
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def is_subscription_active(self) -> bool:
         """Check if user has active subscription or trial."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if self.subscription_expires_at and _to_utc(self.subscription_expires_at) > now:
             return True
@@ -79,7 +91,7 @@ class User(Base):
 
     def get_effective_tier(self) -> str:
         """Get current effective subscription tier."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Check paid subscription first
         if self.subscription_expires_at and _to_utc(self.subscription_expires_at) > now:

@@ -113,7 +113,9 @@ class ProcessingPipeline:
                     db.add(content_tag)
                 else:
                     logger.warning(
-                        f"AI selected tag '{tag_name}' not found in user {user_id}'s library for content {content_id}"
+                        "AI selected tag '%s' not found in"
+                        " user %s's library for content %s",
+                        tag_name, user_id, content_id,
                     )
 
         # Step 4: Store paragraphs

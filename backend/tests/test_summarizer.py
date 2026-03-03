@@ -4,11 +4,15 @@ These tests validate Pydantic models and static helpers only.
 They do NOT call the Claude API (no API key required).
 """
 
+from uuid import uuid4
+
 import pytest
 
 from app.schemas.summary import ContentSummary, OutlinePoint
 from app.services.extractor import ExtractedContent, ExtractedParagraph
 from app.services.summarizer import SummarizationService
+
+TEST_USER_ID = str(uuid4())
 
 
 # ------------------------------------------------------------------ #
@@ -202,13 +206,13 @@ def reset_summarizer_singleton():
 @pytest.mark.asyncio
 async def test_generate_summary_with_user_tags(db_session):
     """Test that summary generation includes user's tag library in prompt."""
-    from app.services.summarizer import _get_summarizer, SummarizationService
     from app.models.user_tag import UserTag
+    from app.services.summarizer import _get_summarizer
 
     # Create user tags
-    tag1 = UserTag(user_id="test_user", tag_name="技术")
-    tag2 = UserTag(user_id="test_user", tag_name="学习")
-    tag3 = UserTag(user_id="test_user", tag_name="投资")
+    tag1 = UserTag(user_id=TEST_USER_ID, tag_name="技术")
+    tag2 = UserTag(user_id=TEST_USER_ID, tag_name="学习")
+    tag3 = UserTag(user_id=TEST_USER_ID, tag_name="投资")
     db_session.add_all([tag1, tag2, tag3])
     await db_session.commit()
 
@@ -233,7 +237,7 @@ async def test_generate_summary_with_user_tags(db_session):
         result = await summarizer.generate_summary(
             full_text="Test content about technology and learning",
             paragraphs=["Paragraph 1", "Paragraph 2"],
-            user_id="test_user",
+            user_id=TEST_USER_ID,
             db=db_session,
         )
 
@@ -253,8 +257,9 @@ async def test_generate_summary_with_user_tags(db_session):
 @pytest.mark.asyncio
 async def test_generate_summary_with_no_user_tags(db_session):
     """Test summary generation when user has no tags."""
-    from app.services.summarizer import _get_summarizer
     from unittest.mock import AsyncMock, patch
+
+    from app.services.summarizer import _get_summarizer
 
     mock_response = {
         "l0_summary": "Test summary",
@@ -274,7 +279,7 @@ async def test_generate_summary_with_no_user_tags(db_session):
         result = await summarizer.generate_summary(
             full_text="Test content",
             paragraphs=["Paragraph 1"],
-            user_id="test_user",
+            user_id=TEST_USER_ID,
             db=db_session,
         )
 
@@ -294,13 +299,14 @@ async def test_generate_summary_with_no_user_tags(db_session):
 @pytest.mark.asyncio
 async def test_generate_summary_filters_invalid_tags(db_session):
     """Test that invalid tags returned by AI are filtered out."""
-    from app.services.summarizer import _get_summarizer
-    from app.models.user_tag import UserTag
     from unittest.mock import AsyncMock, patch
 
+    from app.models.user_tag import UserTag
+    from app.services.summarizer import _get_summarizer
+
     # Create user tags
-    tag1 = UserTag(user_id="test_user", tag_name="技术")
-    tag2 = UserTag(user_id="test_user", tag_name="学习")
+    tag1 = UserTag(user_id=TEST_USER_ID, tag_name="技术")
+    tag2 = UserTag(user_id=TEST_USER_ID, tag_name="学习")
     db_session.add_all([tag1, tag2])
     await db_session.commit()
 
@@ -323,7 +329,7 @@ async def test_generate_summary_filters_invalid_tags(db_session):
         result = await summarizer.generate_summary(
             full_text="Test content",
             paragraphs=["Paragraph 1"],
-            user_id="test_user",
+            user_id=TEST_USER_ID,
             db=db_session,
         )
 
@@ -335,8 +341,9 @@ async def test_generate_summary_filters_invalid_tags(db_session):
 @pytest.mark.asyncio
 async def test_generate_summary_handles_db_error(db_session):
     """Test that summarization continues when tag fetch fails."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
     from app.services.summarizer import _get_summarizer
-    from unittest.mock import AsyncMock, patch, MagicMock
 
     mock_response = {
         "l0_summary": "Test summary",
@@ -360,7 +367,7 @@ async def test_generate_summary_handles_db_error(db_session):
         result = await summarizer.generate_summary(
             full_text="Test content",
             paragraphs=["Paragraph 1"],
-            user_id="test_user",
+            user_id=TEST_USER_ID,
             db=db_mock,
         )
 

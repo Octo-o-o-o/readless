@@ -76,3 +76,11 @@ docker-compose.override.yml
 *.zip
 *.tar
 .firecrawl/
+
+# macOS app build artifacts
+macos/.sandbox-home/
+macos/Readless.app/
+
+# Temporary docs
+ERROR_AUDIT.md
+IMPLEMENTATION_COMPLETE.md

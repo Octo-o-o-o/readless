@@ -7,9 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user_id
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
-from app.config import settings
 from app.schemas.auth import (
     AppleSignInRequest,
     AppleSignInResponse,
@@ -110,7 +110,9 @@ async def verify_email_login_code(
     auth_service = AuthService(db)
 
     try:
-        user, access_token, refresh_token, is_new_user = await auth_service.verify_email_login_code(
+        (
+            user, access_token, refresh_token, is_new_user,
+        ) = await auth_service.verify_email_login_code(
             email=request.email,
             code=request.code,
             device_name=None,
@@ -158,7 +160,9 @@ async def apple_signin(
     auth_service = AuthService(db)
 
     try:
-        user, access_token, refresh_token, is_new_user = await auth_service.apple_signin(
+        (
+            user, access_token, refresh_token, is_new_user,
+        ) = await auth_service.apple_signin(
             identity_token=request.identity_token,
             device_name=None,  # TODO: Get from request header
             device_id=None,
@@ -200,13 +204,19 @@ async def get_current_user(
     try:
         user_uuid = UUID(user_id)
     except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid session. Please log in again.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid session. Please log in again.",
+        )
 
     result = await db.execute(
         select(User).where(User.id == user_uuid, User.deleted_at.is_(None))
     )
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found. Please log in again.")
+        raise HTTPException(
+            status_code=401,
+            detail="User not found. Please log in again.",
+        )
 
     return UserResponse.model_validate(user)

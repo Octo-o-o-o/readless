@@ -14,7 +14,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
 
 from app.models.user import User
 
@@ -112,7 +111,9 @@ async def test_verify_receipt_pro_subscription(
 
 
 @pytest.mark.asyncio
-async def test_verify_receipt_clears_trial(test_client, mock_storekit_verify, auth_db_session):
+async def test_verify_receipt_clears_trial(
+    test_client, mock_storekit_verify, auth_db_session
+):
     """Test receipt verification clears trial period."""
     # Create user with active trial
     user_id = uuid4()
@@ -349,7 +350,9 @@ async def test_upgrade_basic_to_pro(test_client, mock_storekit_verify, auth_db_s
 
 
 @pytest.mark.asyncio
-async def test_downgrade_not_immediate(test_client, mock_storekit_verify, auth_db_session):
+async def test_downgrade_not_immediate(
+    test_client, mock_storekit_verify, auth_db_session
+):
     """Test that downgrade doesn't immediately change tier (waits for expiry)."""
     # Note: This tests current implementation behavior
     # In production, App Store handles subscription changes via webhooks

@@ -1,6 +1,7 @@
 """Tests for ContentTag model - verifies model structure without database."""
 
 from sqlalchemy import inspect
+
 from app.models.content_tag import ContentTag
 
 
@@ -28,8 +29,8 @@ def test_content_tag_relationship_structure():
     # Verify tag_id is Integer
     assert "INTEGER" in str(columns["tag_id"].type).upper()
 
-    # Verify user_id is String(100)
-    assert str(columns["user_id"].type) == "VARCHAR(100)"
+    # Verify user_id is UUID
+    assert "UUID" in str(columns["user_id"].type).upper()
 
     # Verify user_id is not nullable
     assert columns["user_id"].nullable is False

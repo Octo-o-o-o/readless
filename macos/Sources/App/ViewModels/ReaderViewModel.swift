@@ -64,7 +64,7 @@ final class ReaderViewModel {
         isLoadingTranslation = false
 
         do {
-            content = try await api.getContent(id: contentID)
+            content = try await api.fetchContent(id: contentID)
         } catch {
             content = nil
         }

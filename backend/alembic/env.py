@@ -6,41 +6,32 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-
-# Import app config and models
 from app.config import settings
 from app.database import Base
+from app.models.channel import Channel  # noqa: F401
 
 # Import all models to ensure they're registered with Base.metadata
-from app.models.content import Content
-from app.models.paragraph import Paragraph
-from app.models.podcast import Podcast
-from app.models.channel import Channel
-from app.models.user import User
-from app.models.user_tag import UserTag
-from app.models.content_tag import ContentTag
-from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
+from app.models.content import Content  # noqa: F401
+from app.models.content_tag import ContentTag  # noqa: F401
+from app.models.paragraph import Paragraph  # noqa: F401
+from app.models.podcast import Podcast  # noqa: F401
+from app.models.refresh_token import (  # noqa: F401
+    EmailLoginCode,
+    PasswordResetToken,
+    RefreshToken,
+)
+from app.models.user import User  # noqa: F401
+from app.models.user_tag import UserTag  # noqa: F401
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
 
-# Escape `%` for ConfigParser interpolation (e.g. URL-encoded passwords).
+# Escape `%` for ConfigParser interpolation (e.g. URL-encoded passwords)
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
 target_metadata = Base.metadata
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
 
 def run_migrations_offline() -> None:

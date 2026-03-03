@@ -4,7 +4,6 @@ These tests require NO database, NO API keys, and NO network access.
 They verify class structure, method signatures, and route registration.
 """
 
-import pytest
 
 
 # ------------------------------------------------------------------ #
@@ -80,14 +79,14 @@ class TestPodcastServiceStructure:
         assert service is not None
 
     def test_client_is_lazy(self) -> None:
-        """Verify that PodcastService does not create the Anthropic client at init time."""
+        """PodcastService should not create Anthropic client at init."""
         from app.services.podcast import PodcastService
 
         service = PodcastService()
         assert service._client is None
 
     def test_storage_is_lazy(self) -> None:
-        """Verify that PodcastService does not create the StorageService at init time."""
+        """PodcastService should not create StorageService at init."""
         from app.services.podcast import PodcastService
 
         service = PodcastService()

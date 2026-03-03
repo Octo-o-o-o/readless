@@ -6,7 +6,6 @@ They test module structure, imports, and router registration.
 
 import inspect
 
-
 # ------------------------------------------------------------------ #
 #  Module exports and router setup
 # ------------------------------------------------------------------ #
@@ -299,7 +298,6 @@ class TestTagRouterSchemas:
 
     def test_imports_user_tag_response(self) -> None:
         """Verify router imports UserTagResponse schema."""
-        from app.routers import tags
 
         # Check module imports the schema
         import app.schemas.tag as tag_schema

@@ -18,7 +18,8 @@ You are a language detection engine. You always respond with valid JSON only —
 no markdown fences, no explanation, no extra text."""
 
 DETECT_LANGUAGE_USER_PROMPT = """\
-Detect the primary language of the following text and return the ISO 639-1 language code.
+Detect the primary language of the following text \
+and return the ISO 639-1 language code.
 
 Text: {text}
 

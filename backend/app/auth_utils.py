@@ -4,13 +4,12 @@ JWT and password utilities for authentication.
 Provides:
 - Password hashing and verification using bcrypt (cost factor 12)
 - Password validation against complexity requirements
-- JWT access token generation and verification (HS256, 15 min expiry)
-- JWT refresh token generation and verification (HS256, 30 day expiry)
+- JWT access/refresh token generation and verification (HS256)
 - Secure token generation for email verification and password reset
 """
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -18,25 +17,11 @@ from jwt import InvalidTokenError
 
 from app.config import settings
 
-
 # -------------------- Password Hashing --------------------
 
 
 def hash_password(password: str) -> str:
-    """
-    Hash a password using bcrypt with cost factor 12.
-
-    Args:
-        password: Plain text password
-
-    Returns:
-        Hashed password as string (bcrypt automatically includes salt)
-
-    Example:
-        >>> hashed = hash_password("MySecurePass123")
-        >>> verify_password("MySecurePass123", hashed)
-        True
-    """
+    """Hash a password using bcrypt with cost factor 12."""
     password_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
@@ -44,26 +29,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a password against its bcrypt hash.
-
-    Args:
-        plain_password: Plain text password to verify
-        hashed_password: Bcrypt hash to check against
-
-    Returns:
-        True if password matches, False otherwise
-
-    Example:
-        >>> hashed = hash_password("correct")
-        >>> verify_password("correct", hashed)
-        True
-        >>> verify_password("wrong", hashed)
-        False
-    """
-    password_bytes = plain_password.encode("utf-8")
-    hashed_bytes = hashed_password.encode("utf-8")
-    return bcrypt.checkpw(password_bytes, hashed_bytes)
+    """Verify a password against its bcrypt hash."""
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8"),
+    )
 
 
 # -------------------- Password Validation --------------------
@@ -71,29 +41,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def validate_password(password: str) -> tuple[bool, str | None]:
     """
-    Validate password against complexity requirements.
-
-    Requirements (from config.py):
-    - Minimum length (default: 8 characters)
-    - At least one uppercase letter (if REQUIRE_PASSWORD_UPPERCASE=True)
-    - At least one lowercase letter (if REQUIRE_PASSWORD_LOWERCASE=True)
-    - At least one digit (if REQUIRE_PASSWORD_DIGIT=True)
-
-    Args:
-        password: Plain text password to validate
+    Validate password against complexity requirements from settings.
 
     Returns:
-        Tuple of (is_valid, error_message)
-        - (True, None) if valid
-        - (False, "error message") if invalid
-
-    Example:
-        >>> validate_password("Test123")
-        (False, "Password must be at least 8 characters")
-        >>> validate_password("Test1234")
-        (True, None)
+        Tuple of (is_valid, error_message). Error message is None when valid.
     """
-    # Collect all failed requirements
     requirements = []
 
     if len(password) < settings.min_password_length:
@@ -108,121 +60,53 @@ def validate_password(password: str) -> tuple[bool, str | None]:
     if settings.require_password_digit and not any(c.isdigit() for c in password):
         requirements.append("one number")
 
-    # If any requirements failed, return combined message
-    if requirements:
-        if len(requirements) == 1:
-            return False, f"Password must include {requirements[0]}."
-        else:
-            # Join requirements with commas and "and" for the last one
-            requirements_str = ", ".join(requirements[:-1]) + f", and {requirements[-1]}"
-            return False, f"Password must include {requirements_str}."
+    if not requirements:
+        return True, None
 
-    return True, None
+    if len(requirements) == 1:
+        return False, f"Password must include {requirements[0]}."
+
+    requirements_str = ", ".join(requirements[:-1]) + f", and {requirements[-1]}"
+    return False, f"Password must include {requirements_str}."
 
 
 # -------------------- JWT Token Generation --------------------
 
 
-def create_access_token(user_id: str) -> str:
-    """
-    Create a JWT access token for a user.
-
-    Token contains:
-    - sub: user_id
-    - exp: expiration time (15 minutes from now)
-    - iat: issued at time (current time)
-    - jti: unique token ID
-    - type: "access"
-
-    Args:
-        user_id: UUID string of the user
-
-    Returns:
-        JWT token string
-
-    Example:
-        >>> token = create_access_token("user123")
-        >>> payload = verify_access_token(token)
-        >>> payload["sub"] == "user123"
-        True
-    """
-    now = datetime.now(timezone.utc)
-    expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
-    expire = now + expires_delta
-
+def _create_token(user_id: str, token_type: str, expires_delta: timedelta) -> str:
+    """Create a JWT token with the given type and expiration."""
+    now = datetime.now(UTC)
     payload = {
         "sub": user_id,
-        "exp": expire,
+        "exp": now + expires_delta,
         "iat": now,
         "jti": secrets.token_urlsafe(16),
-        "type": "access",
+        "type": token_type,
     }
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
-    token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
-    return token
+
+def create_access_token(user_id: str) -> str:
+    """Create a short-lived JWT access token (15 min default)."""
+    return _create_token(
+        user_id, "access", timedelta(minutes=settings.access_token_expire_minutes)
+    )
 
 
 def create_refresh_token(user_id: str) -> str:
-    """
-    Create a JWT refresh token for a user.
-
-    Token contains:
-    - sub: user_id
-    - exp: expiration time (30 days from now)
-    - iat: issued at time (current time)
-    - jti: unique token ID
-    - type: "refresh"
-
-    Args:
-        user_id: UUID string of the user
-
-    Returns:
-        JWT token string
-
-    Example:
-        >>> token = create_refresh_token("user123")
-        >>> payload = verify_refresh_token(token)
-        >>> payload["sub"] == "user123"
-        True
-    """
-    now = datetime.now(timezone.utc)
-    expires_delta = timedelta(days=settings.refresh_token_expire_days)
-    expire = now + expires_delta
-
-    payload = {
-        "sub": user_id,
-        "exp": expire,
-        "iat": now,
-        "jti": secrets.token_urlsafe(16),
-        "type": "refresh",
-    }
-
-    token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
-    return token
+    """Create a long-lived JWT refresh token (30 day default)."""
+    return _create_token(
+        user_id, "refresh", timedelta(days=settings.refresh_token_expire_days)
+    )
 
 
 # -------------------- JWT Token Verification --------------------
 
 
-def verify_access_token(token: str) -> dict:
-    """
-    Verify a JWT access token and return its payload.
-
-    Args:
-        token: JWT token string
-
-    Returns:
-        Decoded token payload dict with keys: sub, exp, iat, type
-
-    Raises:
-        InvalidTokenError: If token is invalid, expired, or wrong type
-
-    Example:
-        >>> token = create_access_token("user123")
-        >>> payload = verify_access_token(token)
-        >>> payload["sub"]
-        'user123'
-    """
+def _verify_token(token: str, expected_type: str) -> dict:
+    """Decode and verify a JWT token, ensuring the correct type claim."""
     try:
         payload = jwt.decode(
             token,
@@ -230,86 +114,33 @@ def verify_access_token(token: str) -> dict:
             algorithms=[settings.jwt_algorithm],
         )
 
-        # Verify token type
-        if payload.get("type") != "access":
+        if payload.get("type") != expected_type:
             raise InvalidTokenError("Invalid token type")
 
         return payload
 
     except InvalidTokenError as e:
-        raise InvalidTokenError(f"Invalid access token: {e}") from e
+        raise InvalidTokenError(f"Invalid {expected_type} token: {e}") from e
+
+
+def verify_access_token(token: str) -> dict:
+    """Verify a JWT access token and return its payload."""
+    return _verify_token(token, "access")
 
 
 def verify_refresh_token(token: str) -> dict:
-    """
-    Verify a JWT refresh token and return its payload.
-
-    Args:
-        token: JWT token string
-
-    Returns:
-        Decoded token payload dict with keys: sub, exp, iat, type
-
-    Raises:
-        InvalidTokenError: If token is invalid, expired, or wrong type
-
-    Example:
-        >>> token = create_refresh_token("user123")
-        >>> payload = verify_refresh_token(token)
-        >>> payload["sub"]
-        'user123'
-    """
-    try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-        )
-
-        # Verify token type
-        if payload.get("type") != "refresh":
-            raise InvalidTokenError("Invalid token type")
-
-        return payload
-
-    except InvalidTokenError as e:
-        raise InvalidTokenError(f"Invalid refresh token: {e}") from e
+    """Verify a JWT refresh token and return its payload."""
+    return _verify_token(token, "refresh")
 
 
 # -------------------- Secure Token Generation --------------------
 
 
-def generate_verification_token() -> str:
-    """
-    Generate a secure random token for email verification.
-
-    Uses secrets.token_urlsafe() for cryptographically strong randomness.
-    Token is URL-safe (no special characters).
-
-    Returns:
-        32-character URL-safe token string
-
-    Example:
-        >>> token = generate_verification_token()
-        >>> len(token) == 32
-        True
-    """
+def generate_secure_token() -> str:
+    """Generate a cryptographically secure URL-safe random token."""
     return secrets.token_urlsafe(32)
 
 
-def generate_password_reset_token() -> str:
-    """
-    Generate a secure random token for password reset.
-
-    Uses secrets.token_urlsafe() for cryptographically strong randomness.
-    Token is URL-safe (no special characters).
-
-    Returns:
-        32-character URL-safe token string
-
-    Example:
-        >>> token = generate_password_reset_token()
-        >>> len(token) == 32
-        True
-    """
-    return secrets.token_urlsafe(32)
+# Keep descriptive aliases for call-site clarity
+generate_verification_token = generate_secure_token
+generate_password_reset_token = generate_secure_token

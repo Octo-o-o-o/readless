@@ -3,7 +3,6 @@
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
 
 from app.config import settings
 from app.database import get_engine

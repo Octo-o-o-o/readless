@@ -8,7 +8,6 @@ import inspect
 
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-
 # ------------------------------------------------------------------ #
 #  Module exports
 # ------------------------------------------------------------------ #
@@ -75,7 +74,7 @@ class TestStubsRemoved:
     """Verify that content and search routers no longer have local stubs."""
 
     def test_content_router_no_local_stub(self) -> None:
-        """content.py should import get_current_user_id from app.auth, not define it locally."""
+        """content.py should import get_current_user_id from app.auth."""
         import app.routers.content as content_mod
 
         # The function should exist (imported), but it should be the one from app.auth
@@ -84,21 +83,20 @@ class TestStubsRemoved:
         assert content_mod.get_current_user_id is get_current_user_id
 
     def test_search_router_no_local_stub(self) -> None:
-        """search.py should import get_current_user_id from app.auth, not define it locally."""
+        """search.py should import get_current_user_id from app.auth."""
         import app.routers.search as search_mod
-
         from app.auth import get_current_user_id
 
         assert search_mod.get_current_user_id is get_current_user_id
 
     def test_content_router_stub_is_not_sync(self) -> None:
-        """The auth function used by content router should be async (not the old sync stub)."""
+        """Auth function used by content router should be async."""
         import app.routers.content as content_mod
 
         assert inspect.iscoroutinefunction(content_mod.get_current_user_id)
 
     def test_search_router_stub_is_not_sync(self) -> None:
-        """The auth function used by search router should be async (not the old sync stub)."""
+        """Auth function used by search router should be async."""
         import app.routers.search as search_mod
 
         assert inspect.iscoroutinefunction(search_mod.get_current_user_id)

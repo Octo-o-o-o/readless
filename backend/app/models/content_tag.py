@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
-from sqlalchemy.dialects.postgresql import UUID as pgUUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -24,7 +24,7 @@ class ContentTag(Base):
         ForeignKey("user_tags.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    user_id: Mapped[str] = mapped_column(pgUUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
