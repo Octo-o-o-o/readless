@@ -2,6 +2,7 @@ import SwiftUI
 import StoreKit
 import Core
 import Networking
+import UI
 
 /// Main subscription management view
 ///
@@ -34,8 +35,7 @@ struct SubscriptionView: View {
             // Header
             HStack {
                 Text("Subscription")
-                    .font(.title)
-                    .fontWeight(.bold)
+                    .font(Theme.titleFont)
 
                 Spacer()
 
@@ -43,17 +43,17 @@ struct SubscriptionView: View {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textTertiary)
                         .font(.title2)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(24)
+            .padding(Theme.space24)
 
             Divider()
 
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: Theme.space24) {
                     // Current status banner
                     if let user = authService.currentUser {
                         currentStatusBanner(user: user)
@@ -85,7 +85,7 @@ struct SubscriptionView: View {
                     // Legal disclaimer
                     legalDisclaimer
                 }
-                .padding(24)
+                .padding(Theme.space24)
             }
         }
         .frame(width: 600, height: 700)
@@ -97,42 +97,42 @@ struct SubscriptionView: View {
     // MARK: - Subviews
 
     private func currentStatusBanner(user: User) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space8) {
             HStack {
                 Image(systemName: statusIcon(for: user.subscriptionTier))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
                     .font(.title2)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.space4) {
                     Text("Current Plan: \(user.subscriptionTier.displayName)")
-                        .font(.headline)
+                        .font(.system(size: 14, weight: .semibold))
 
                     if let expiresAt = user.subscriptionExpiresAt {
                         Text("Expires: \(formattedDate(expiresAt))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
                     } else if let trialExpiresAt = user.trialExpiresAt, user.subscriptionTier == .trial {
                         Text("Trial ends: \(formattedDate(trialExpiresAt))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                 }
 
                 Spacer()
             }
-            .padding(16)
+            .padding(Theme.space16)
             .background(statusColor(for: user.subscriptionTier).opacity(0.1))
-            .cornerRadius(12)
+            .cornerRadius(Theme.radiusMedium)
         }
     }
 
     private func errorBanner(message: String) -> some View {
-        HStack {
+        HStack(spacing: Theme.space8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
 
             Text(message)
-                .font(.body)
+                .font(Theme.metaFont)
                 .foregroundStyle(.red)
 
             Spacer()
@@ -141,22 +141,22 @@ struct SubscriptionView: View {
                 errorMessage = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textTertiary)
             }
             .buttonStyle(.plain)
         }
-        .padding(16)
+        .padding(Theme.space16)
         .background(Color.red.opacity(0.1))
-        .cornerRadius(12)
+        .cornerRadius(Theme.radiusMedium)
     }
 
     private func successBanner(message: String) -> some View {
-        HStack {
+        HStack(spacing: Theme.space8) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
 
             Text(message)
-                .font(.body)
+                .font(Theme.metaFont)
                 .foregroundStyle(.green)
 
             Spacer()
@@ -165,17 +165,17 @@ struct SubscriptionView: View {
                 showSuccessMessage = false
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textTertiary)
             }
             .buttonStyle(.plain)
         }
-        .padding(16)
+        .padding(Theme.space16)
         .background(Color.green.opacity(0.1))
-        .cornerRadius(12)
+        .cornerRadius(Theme.radiusMedium)
     }
 
     private var productCardsView: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: Theme.space16) {
             ForEach(sortedProducts, id: \.id) { product in
                 ProductCard(
                     product: product,
@@ -206,38 +206,38 @@ struct SubscriptionView: View {
             }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.blue)
+        .foregroundStyle(Theme.accent)
         .disabled(storeManager.isPurchasing)
-        .padding(.top, 8)
+        .padding(.top, Theme.space8)
     }
 
     private var legalDisclaimer: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Theme.space8) {
             Text("Subscriptions auto-renew unless cancelled. Cancel anytime in App Store settings.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
 
             Text("Prices shown in your local currency. Subscriptions managed through App Store.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
         }
-        .padding(.top, 16)
+        .padding(.top, Theme.space16)
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Theme.space16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             Text("No products available")
-                .font(.headline)
+                .font(.system(size: 14, weight: .semibold))
 
             Text("Unable to load subscription products from App Store. Please try again later.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
@@ -247,7 +247,7 @@ struct SubscriptionView: View {
             }
             .buttonStyle(.borderedProminent)
         }
-        .padding(40)
+        .padding(Theme.space40)
     }
 
     // MARK: - Actions

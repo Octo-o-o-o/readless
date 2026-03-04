@@ -1,4 +1,5 @@
 import SwiftUI
+import UI
 
 /// A single tag chip with optional remove button
 struct TagChip: View {
@@ -11,25 +12,31 @@ struct TagChip: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             Text(text)
-                .font(.caption)
-                .foregroundStyle(.primary)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.tagText)
 
             if let onRemove {
                 Button {
                     onRemove()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Theme.textTertiary)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.accentColor.opacity(0.1))
-        .cornerRadius(12)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                .fill(Theme.tagBg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                .strokeBorder(Theme.tagBorder, lineWidth: 0.5)
+        )
     }
 }

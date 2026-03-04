@@ -30,6 +30,7 @@ final class ContentManager {
 
     private let api = APIClient.shared
     private let database = LocalDatabase.shared
+    private var lastLoadedUserId: String?
 
     /// Get current user ID for database filtering
     private var currentUserId: String? {
@@ -102,22 +103,45 @@ final class ContentManager {
 
     // MARK: - Data Loading
 
-    /// Fetch the content list from the backend, falling back to local cache.
+    /// Load content list with a cache-first strategy:
+    /// 1) Show local cache immediately (fast UI)
+    /// 2) Refresh from backend in background (fresh data)
     func loadContents() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        let userId = currentUserId
+        if lastLoadedUserId != userId {
+            contents = []
+            lastLoadedUserId = userId
+        }
+
+        // Claim legacy cache rows (user_id was added in v4; older rows are NULL).
+        if let userId {
+            try? await database.claimLegacyCache(userId: userId)
+        }
+
+        // 1) Preload from local cache (instant list)
         do {
-            contents = try await api.listContents()
-            await cacheContents(contents)
-        } catch {
-            // Fallback to local cache if backend is unavailable
-            do {
-                let cached = try await database.fetchContents(userId: currentUserId)
-                if !cached.isEmpty {
-                    contents = cached
-                    print("[ContentManager] Loaded \(cached.count) items from local cache")
-                }
-            } catch {
-                print("[ContentManager] Failed to load from cache: \(error)")
+            let cached = try await database.fetchContents(userId: userId)
+            if !cached.isEmpty {
+                contents = cached
+                print("[ContentManager] Preloaded \(cached.count) items from local cache")
             }
+        } catch {
+            print("[ContentManager] Failed to preload cache: \(error)")
+        }
+
+        // 2) Refresh from backend
+        do {
+            let fresh = try await api.listContents()
+            contents = fresh
+            error = nil
+            await cacheContents(fresh)
+        } catch {
+            // Keep cached list if refresh fails
+            self.error = error
+            print("[ContentManager] Failed to refresh content list: \(error)")
         }
     }
 

@@ -1,6 +1,7 @@
 import AppKit
 import AuthenticationServices
 import SwiftUI
+import UI
 
 // MARK: - Login View
 
@@ -56,14 +57,14 @@ struct LoginView: View {
     // MARK: - Card
 
     private var loginCard: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: Theme.space24) {
             brandingSection
             socialButtonsSection
             orDivider
             emailSection
         }
-        .padding(.horizontal, 40)
-        .padding(.vertical, 40)
+        .padding(.horizontal, Theme.space40)
+        .padding(.vertical, Theme.space40)
         .frame(maxWidth: 420)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
@@ -71,13 +72,13 @@ struct LoginView: View {
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.22), radius: 40, y: 12)
-        .padding(.horizontal, 40)
+        .padding(.horizontal, Theme.space40)
     }
 
     // MARK: - Branding
 
     private var brandingSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Theme.space12) {
             ZStack {
                 Circle()
                     .fill(.ultraThinMaterial)
@@ -87,15 +88,15 @@ struct LoginView: View {
 
                 Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Theme.textPrimary)
             }
 
-            VStack(spacing: 4) {
+            VStack(spacing: Theme.space4) {
                 Text("Welcome to Readless")
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                 Text("Read less. Know more.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.metaFont)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
     }
@@ -103,7 +104,7 @@ struct LoginView: View {
     // MARK: - Social Buttons
 
     private var socialButtonsSection: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Theme.space8) {
             appleButton
             googleButton
         }
@@ -113,7 +114,7 @@ struct LoginView: View {
     /// Never use Color.primary here: in dark mode it becomes white → white on white.
     private var appleButton: some View {
         Button(action: handleAppleSignIn) {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space8) {
                 if isLoadingApple {
                     ProgressView()
                         .controlSize(.small)
@@ -128,7 +129,7 @@ struct LoginView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 46)
-            .background(Color.black, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(Color.black, in: RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isLoadingApple || isLoadingEmail)
@@ -137,7 +138,7 @@ struct LoginView: View {
     private var googleButton: some View {
         ZStack(alignment: .topTrailing) {
             Button(action: {}) {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.space8) {
                     Text("G")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(
@@ -152,16 +153,16 @@ struct LoginView: View {
                         )
                     Text("Continue with Google")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 46)
                 .background(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                    RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous)
+                        .fill(Theme.surfaceFloating)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous)
+                                .stroke(Theme.borderSubtle, lineWidth: 1)
                         )
                 )
             }
@@ -182,16 +183,16 @@ struct LoginView: View {
     // MARK: - Divider
 
     private var orDivider: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.space12) {
             Rectangle()
-                .fill(Color(nsColor: .separatorColor))
+                .fill(Theme.borderSubtle)
                 .frame(height: 1)
             Text("or continue with email")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.textTertiary)
                 .fixedSize()
             Rectangle()
-                .fill(Color(nsColor: .separatorColor))
+                .fill(Theme.borderSubtle)
                 .frame(height: 1)
         }
     }
@@ -199,29 +200,29 @@ struct LoginView: View {
     // MARK: - Email Section
 
     private var emailSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Theme.space12) {
             // Status messages
             if let msg = errorMessage {
-                HStack(spacing: 6) {
+                HStack(spacing: Theme.space6) {
                     Image(systemName: "exclamationmark.circle.fill")
                     Text(msg).fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.caption)
+                .font(Theme.captionFont)
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 2)
+                .padding(.horizontal, Theme.space2)
                 .transition(.push(from: .top).combined(with: .opacity))
             }
 
             if let msg = infoMessage {
-                HStack(spacing: 6) {
+                HStack(spacing: Theme.space6) {
                     Image(systemName: "checkmark.circle.fill")
                     Text(msg)
                 }
-                .font(.caption)
+                .font(Theme.captionFont)
                 .foregroundStyle(.green)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 2)
+                .padding(.horizontal, Theme.space2)
                 .transition(.push(from: .top).combined(with: .opacity))
             }
 
@@ -245,7 +246,7 @@ struct LoginView: View {
             Button {
                 Task { isCodeSent ? await verifyCode() : await sendCode() }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.space8) {
                     if isLoadingEmail {
                         ProgressView().controlSize(.small).tint(.white)
                     } else {
@@ -259,19 +260,19 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .background(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(Color.accentColor.opacity(primaryButtonDisabled ? 0.45 : 1))
+                    RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous)
+                        .fill(Theme.accent.opacity(primaryButtonDisabled ? 0.45 : 1))
                 )
             }
             .buttonStyle(.plain)
             .disabled(primaryButtonDisabled)
-            .animation(.easeInOut(duration: 0.15), value: primaryButtonDisabled)
+            .animation(Theme.hoverAnimation, value: primaryButtonDisabled)
 
             // Resend / change email
             if isCodeSent {
-                HStack(spacing: 6) {
+                HStack(spacing: Theme.space6) {
                     Button("Resend code") { Task { await sendCode() } }
-                    Text("·").foregroundStyle(.tertiary)
+                    Text("·").foregroundStyle(Theme.textTertiary)
                     Button("Change email") {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                             isCodeSent = false
@@ -281,8 +282,8 @@ struct LoginView: View {
                         }
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(Color.accentColor)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.accent)
                 .buttonStyle(.plain)
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -294,8 +295,8 @@ struct LoginView: View {
 
     private var footerText: some View {
         Text("By continuing, you agree to our Terms of Service and Privacy Policy.")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .font(Theme.captionFont)
+            .foregroundStyle(Theme.textTertiary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 60)
     }
@@ -381,10 +382,10 @@ struct LGTextField: View {
     @Binding var text: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.space8) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .frame(width: 18)
 
             TextField(placeholder, text: $text)
@@ -395,11 +396,11 @@ struct LGTextField: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous)
+                .fill(Theme.surfaceFloating)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous)
+                        .stroke(Theme.borderSubtle, lineWidth: 1)
                 )
         )
     }

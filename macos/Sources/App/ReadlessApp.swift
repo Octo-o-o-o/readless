@@ -16,7 +16,9 @@ struct ReadlessApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if authService.isAuthenticated {
+            if !authService.isInitialized {
+                LaunchView()
+            } else if authService.isAuthenticated {
                 ContentView()
                     .environment(authService)
                     .environment(aiCoordinator)

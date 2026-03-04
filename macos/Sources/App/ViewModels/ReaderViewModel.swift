@@ -1,6 +1,7 @@
 import Foundation
 import Core
 import Networking
+import Storage
 
 // MARK: - Reader View Model
 
@@ -10,15 +11,15 @@ final class ReaderViewModel {
     var content: Content?
     var paragraphs: [(anchorID: String, text: String)] = []
 
-    // Separate cache and expansion state
-    private var cachedDetails: [Int: String] = [:]  // Permanent cache (cleared only on content switch)
-    var expandedIndices: Set<Int> = []              // Current expansion state
+    // Expansion state — both are directly observed by SwiftUI
+    var expandedDetails: [Int: String] = [:]       // Index → detail text (only for expanded items)
+    var loadingExpandIndices: Set<Int> = []         // Per-point loading state
+    var expandStateVersion: Int = 0                 // Force redraw signal for expansion UI
 
     var focusedIndex: Int = 0
     var showSourcePanel: Bool = false
     var sourceAnchorID: String?
     var followUpAnswer: String?
-    var isLoadingExpand: Bool = false
     var isLoadingFollowUp: Bool = false
 
     // Translation state
@@ -27,16 +28,14 @@ final class ReaderViewModel {
     var isLoadingTranslation: Bool = false
 
     private let api: APIClient
+    private let database: LocalDatabase
 
-    /// Computed property for view compatibility
-    var expandedDetails: [Int: String] {
-        expandedIndices.reduce(into: [:]) { result, index in
-            result[index] = cachedDetails[index]
-        }
-    }
+    // Private cache of ALL fetched details (persists across collapse/expand)
+    private var cachedDetails: [Int: String] = [:]
 
-    init(api: APIClient? = nil) {
+    init(api: APIClient? = nil, database: LocalDatabase? = nil) {
         self.api = api ?? .shared
+        self.database = database ?? .shared
     }
 
     /// Whether a translation is available
@@ -53,66 +52,139 @@ final class ReaderViewModel {
 
     func loadContent(contentID: String) async {
         // Reset state for new content
-        cachedDetails = [:]      // Clear cache on content switch
-        expandedIndices = []     // Clear expansion state
+        expandedDetails = [:]
+        cachedDetails = [:]
         focusedIndex = 0
         followUpAnswer = nil
+        loadingExpandIndices = []
 
         // Reset translation state
         translatedContent = nil
         showingTranslation = false
         isLoadingTranslation = false
 
+        // 1. Load from local cache first (instant display)
+        if let cached = try? await database.fetchContent(id: contentID) {
+            content = cached
+            cachedDetails = (try? await database.fetchExpandedDetails(contentId: contentID)) ?? [:]
+        }
+
+        // 2. Fetch from API in background to get fresh data
         do {
-            content = try await api.fetchContent(id: contentID)
+            let fresh = try await api.fetchContent(id: contentID)
+            content = fresh
+            // Update local cache
+            let userId = AuthService.shared.currentUser?.id.uuidString
+            try? await database.saveContent(fresh, userId: userId)
         } catch {
-            content = nil
+            // Keep cached content if API fails
         }
     }
 
     func loadParagraphs(contentID: String) async {
+        // 1. Load from local cache first
+        if let cached = try? await database.fetchParagraphs(contentId: contentID), !cached.isEmpty {
+            paragraphs = cached
+        }
+
+        // 2. Fetch from API for fresh data
         do {
             let results = try await api.getParagraphs(contentID: contentID)
-            paragraphs = results.map { (anchorID: $0.anchorID, text: $0.text) }
+            let fresh = results.map { (anchorID: $0.anchorID, text: $0.text) }
+            paragraphs = fresh
+            // Save to local cache
+            try? await database.saveParagraphs(fresh, contentId: contentID)
         } catch {
-            paragraphs = []
+            // Keep cached paragraphs if API fails
         }
     }
 
     // MARK: - L2 Expand
 
     func expandPoint(at index: Int) async {
-        guard let content, let outline = content.l1Outline, index < outline.count else { return }
+        print("[ReaderViewModel] Expand tapped index=\(index)")
 
-        // Toggle expansion state
-        if expandedIndices.contains(index) {
-            expandedIndices.remove(index)  // Collapse, but keep cache
+        guard !loadingExpandIndices.contains(index) else {
+            print("[ReaderViewModel] Skip expand: index \(index) already loading")
             return
         }
 
-        // Check cache first (instant expansion)
-        if cachedDetails[index] != nil {
-            expandedIndices.insert(index)
+        guard let displayedContent else {
+            print("[ReaderViewModel] Skip expand: no displayed content")
             return
         }
 
-        // If the OutlinePoint already carries inline detail, use it
-        if let inlineDetail = outline[index].detail {
+        guard let outline = displayedContent.l1Outline else {
+            print("[ReaderViewModel] Skip expand: no outline on displayed content")
+            return
+        }
+
+        guard index < outline.count else {
+            print("[ReaderViewModel] Skip expand: index \(index) out of bounds, outline count=\(outline.count)")
+            return
+        }
+
+        let contentID = content?.id ?? displayedContent.id
+
+        func setExpandedDetail(_ detail: String?) {
+            var updated = expandedDetails
+            if let detail {
+                updated[index] = detail
+            } else {
+                updated.removeValue(forKey: index)
+            }
+            expandedDetails = updated
+            expandStateVersion &+= 1
+        }
+
+        func setLoading(_ isLoading: Bool) {
+            var updated = loadingExpandIndices
+            if isLoading {
+                updated.insert(index)
+            } else {
+                updated.remove(index)
+            }
+            loadingExpandIndices = updated
+            expandStateVersion &+= 1
+        }
+
+        // Toggle: if already expanded, collapse
+        if expandedDetails[index] != nil {
+            print("[ReaderViewModel] Collapse index \(index)")
+            setExpandedDetail(nil)
+            return
+        }
+
+        // Check in-memory cache (instant expansion)
+        if let cached = cachedDetails[index] {
+            print("[ReaderViewModel] Cache hit for index \(index), length=\(cached.count)")
+            setExpandedDetail(cached)
+            return
+        }
+
+        // Check inline detail from OutlinePoint
+        if let inlineDetail = outline[index].detail, !inlineDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            print("[ReaderViewModel] Inline detail hit for index \(index), length=\(inlineDetail.count)")
             cachedDetails[index] = inlineDetail
-            expandedIndices.insert(index)
+            setExpandedDetail(inlineDetail)
             return
         }
 
-        // Cache miss - fetch from API
-        isLoadingExpand = true
-        defer { isLoadingExpand = false }
-
+        // Cache miss — show loading, fetch from API
+        print("[ReaderViewModel] Cache miss for index \(index), requesting backend")
+        setLoading(true)
         do {
-            let detail = try await api.expandPoint(contentID: content.id, pointIndex: index)
-            cachedDetails[index] = detail  // Save to cache
-            expandedIndices.insert(index)  // Expand
+            let detail = try await api.expandPoint(contentID: contentID, pointIndex: index)
+            cachedDetails[index] = detail
+            setLoading(false)
+            setExpandedDetail(detail)
+            print("[ReaderViewModel] Expand success index \(index), length=\(detail.count)")
+            // Persist to local SQLite cache
+            try? await database.saveExpandedDetail(contentId: contentID, pointIndex: index, detailText: detail)
         } catch {
             // Silently fail; user can retry
+            setLoading(false)
+            print("[ReaderViewModel] Expand failed index \(index): \(error)")
         }
     }
 

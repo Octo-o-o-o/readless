@@ -2,6 +2,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AIServices
+import UI
 
 struct CommandBarInputField: View {
     @Binding var query: String
@@ -10,9 +11,9 @@ struct CommandBarInputField: View {
     @State private var isDropTargeted = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.space12) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .font(.title3)
                 .accessibilityHidden(true)
 
@@ -29,24 +30,24 @@ struct CommandBarInputField: View {
                 .accessibilityLabel("Command search field")
                 .accessibilityHint("Type to search, paste URLs, or drag files here")
         }
-        .padding()
+        .padding(Theme.space16)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            RoundedRectangle(cornerRadius: Theme.radiusMedium)
+                .fill(Theme.surfaceFloating.opacity(0.5))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(isFocused ? Color.accentColor : Color.clear, lineWidth: 2)
+                    RoundedRectangle(cornerRadius: Theme.radiusMedium)
+                        .stroke(isFocused ? Theme.borderFocused : Color.clear, lineWidth: 2)
                 )
         )
-        .padding(.horizontal)
-        .padding(.top)
+        .padding(.horizontal, Theme.space16)
+        .padding(.top, Theme.space16)
         .onDrop(of: [.fileURL, .image, .pdf], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
             return true
         }
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isDropTargeted ? Color.accentColor : Color.clear, style: StrokeStyle(lineWidth: 2, dash: [5, 5]))
+            RoundedRectangle(cornerRadius: Theme.radiusMedium)
+                .stroke(isDropTargeted ? Theme.accent : Color.clear, style: StrokeStyle(lineWidth: 2, dash: [5, 5]))
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Search input")

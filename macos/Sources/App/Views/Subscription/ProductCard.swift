@@ -1,6 +1,7 @@
 import SwiftUI
 import StoreKit
 import Core
+import UI
 
 /// Reusable card component for displaying a subscription product
 struct ProductCard: View {
@@ -10,22 +11,21 @@ struct ProductCard: View {
     let onPurchase: () async -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Theme.space16) {
             // Header
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.space4) {
                     Text(productName)
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 20, weight: .semibold))
 
                     Text(product.displayPrice)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 16))
+                        .foregroundStyle(Theme.textSecondary)
 
                     if hasFreeTrial {
                         Text("7-day free trial")
-                            .font(.caption)
-                            .foregroundStyle(.blue)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.accent)
                     }
                 }
 
@@ -33,28 +33,28 @@ struct ProductCard: View {
 
                 if isCurrentPlan {
                     Text("Current Plan")
-                        .font(.caption)
+                        .font(Theme.captionFont)
                         .fontWeight(.medium)
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue)
-                        .cornerRadius(8)
+                        .padding(.horizontal, Theme.space12)
+                        .padding(.vertical, Theme.space6)
+                        .background(Theme.accent)
+                        .cornerRadius(Theme.radiusSmall)
                 }
             }
 
             Divider()
 
             // Features
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Theme.space8) {
                 ForEach(features, id: \.self) { feature in
-                    HStack(spacing: 8) {
+                    HStack(spacing: Theme.space8) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.system(size: 14))
 
                         Text(feature)
-                            .font(.body)
+                            .font(Theme.metaFont)
                     }
                 }
             }
@@ -80,12 +80,12 @@ struct ProductCard: View {
             .buttonStyle(.borderedProminent)
             .disabled(isCurrentPlan || isPurchasing)
         }
-        .padding(20)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .padding(Theme.space20)
+        .background(Theme.surfaceFloating)
+        .cornerRadius(Theme.radiusMedium)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isCurrentPlan ? Color.blue : Color.clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: Theme.radiusMedium)
+                .stroke(isCurrentPlan ? Theme.accent : Color.clear, lineWidth: 2)
         )
     }
 

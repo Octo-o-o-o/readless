@@ -1,6 +1,7 @@
 import SwiftUI
 import Storage
 import Core
+import UI
 
 /// Cache management settings view
 struct CacheSettingsView: View {
@@ -26,23 +27,23 @@ struct CacheSettingsView: View {
                 if viewModel.searchMode == .cloud {
                     Label {
                         Text("Using AI-powered cloud search with semantic understanding. Requires internet connection.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
                     } icon: {
                         Image(systemName: "info.circle")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Theme.accent)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Theme.space4)
                 } else {
                     Label {
                         Text("Using local full-text search. Works offline but requires cached content data.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
                     } icon: {
                         Image(systemName: "info.circle")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Theme.accent)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Theme.space4)
                 }
             } header: {
                 Text("Search")
@@ -52,15 +53,15 @@ struct CacheSettingsView: View {
 
             Section {
                 // Cache size limit slider
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Theme.space8) {
                     HStack {
                         Text("Cache Size Limit")
-                            .font(.headline)
+                            .font(.system(size: 14, weight: .semibold))
 
                         Spacer()
 
                         Text(viewModel.formattedSizeLimit)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                     }
 
                     Slider(
@@ -68,27 +69,28 @@ struct CacheSettingsView: View {
                         in: 50...10240,
                         step: 50
                     )
+                    .tint(Theme.accent)
                     .onChange(of: viewModel.sizeLimitMB) { _, newValue in
                         viewModel.updateSizeLimit(mb: newValue)
                     }
 
                     HStack {
                         Text("50 MB")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
 
                         Spacer()
 
                         Text("10 GB")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
                     }
 
                     Text("Minimum: 50 MB • Default: 4096 MB (4 GB)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.captionFont)
+                        .foregroundStyle(Theme.textSecondary)
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space8)
             } header: {
                 Text("Storage")
             } footer: {
@@ -98,24 +100,24 @@ struct CacheSettingsView: View {
             Section {
                 if let stats = viewModel.stats {
                     // Usage progress bar
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Theme.space12) {
                         HStack {
                             Text("Cache Usage")
-                                .font(.headline)
+                                .font(.system(size: 14, weight: .semibold))
 
                             Spacer()
 
                             Text("\(Int(stats.usagePercentage))%")
                                 .foregroundStyle(
                                     stats.usagePercentage > 90 ? .red :
-                                    stats.usagePercentage > 75 ? .orange : .secondary
+                                    stats.usagePercentage > 75 ? .orange : Theme.textSecondary
                                 )
                         }
 
                         ProgressView(value: stats.usagePercentage, total: 100)
                             .tint(
                                 stats.usagePercentage > 90 ? .red :
-                                stats.usagePercentage > 75 ? .orange : .blue
+                                stats.usagePercentage > 75 ? .orange : Theme.accent
                             )
 
                         HStack {
@@ -123,8 +125,8 @@ struct CacheSettingsView: View {
                                 "\(stats.formattedCurrentSize) used",
                                 systemImage: "internaldrive"
                             )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
 
                             Spacer()
 
@@ -132,11 +134,11 @@ struct CacheSettingsView: View {
                                 "\(stats.formattedAvailableSpace) available",
                                 systemImage: "externaldrive.badge.checkmark"
                             )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, Theme.space8)
 
                     Divider()
 

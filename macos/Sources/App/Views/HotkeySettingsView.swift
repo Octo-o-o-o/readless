@@ -1,5 +1,6 @@
 import SwiftUI
 import KeyboardShortcuts
+import UI
 
 struct HotkeySettingsView: View {
     var body: some View {
@@ -23,7 +24,7 @@ struct HotkeySettingsView: View {
                 Text("Esc — Close Command Bar")
                 Text("Drag & Drop — Files, images, PDFs")
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.textSecondary)
             .font(.system(.body, design: .monospaced))
 
             Section("In-App Navigation") {
@@ -39,7 +40,7 @@ struct HotkeySettingsView: View {
                 Text("/ or ⌘F — Search knowledge base")
                 Text("Esc — Dismiss / Go back")
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.textSecondary)
             .font(.system(.body, design: .monospaced))
         }
         .formStyle(.grouped)

@@ -1,6 +1,7 @@
 // macos/Sources/App/Views/CommandBar/CommandBarResultsList.swift
 import SwiftUI
 import AIServices
+import UI
 
 struct CommandResultRow: View {
     let result: CommandResult
@@ -8,34 +9,34 @@ struct CommandResultRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.space12) {
             // Icon
             Image(systemName: result.icon)
                 .font(.title3)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
             // Title and subtitle
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space2) {
                 Text(result.title)
-                    .font(.body)
-                    .foregroundStyle(.primary)
+                    .font(Theme.listTitleFont)
+                    .foregroundStyle(Theme.textPrimary)
 
                 if let subtitle = result.subtitle {
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(Theme.captionFont)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.space12)
+        .padding(.vertical, Theme.space8)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+            RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                .fill(isSelected ? Theme.accentSubtle : Color.clear)
         )
         .scaleEffect(isSelected && !reduceMotion ? 1.02 : 1.0)
         .animation(reduceMotion ? .none : .spring(response: 0.2, dampingFraction: 0.8), value: isSelected)
@@ -53,14 +54,14 @@ struct CommandBarResultsList: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        LazyVStack(spacing: 4) {
+        LazyVStack(spacing: Theme.space4) {
             ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                 CommandResultRow(result: result, isSelected: index == selectedIndex)
                     .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.space8)
+        .padding(.vertical, Theme.space8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command results")
         .accessibilityValue("\(results.count) results")

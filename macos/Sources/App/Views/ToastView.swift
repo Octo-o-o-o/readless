@@ -1,4 +1,5 @@
 import SwiftUI
+import UI
 
 // MARK: - Toast View
 
@@ -11,11 +12,11 @@ struct ToastView: View {
     var body: some View {
         if isVisible {
             Text(message)
-                .font(.callout)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .shadow(radius: 10)
+                .font(Theme.metaFont)
+                .padding(.horizontal, Theme.space16)
+                .padding(.vertical, Theme.space8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.radiusMedium))
+                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

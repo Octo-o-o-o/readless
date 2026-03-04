@@ -1,22 +1,27 @@
 // macos/Sources/App/Views/CommandBar/CommandBarPreviewPanel.swift
 import SwiftUI
 import Core
+import UI
 
 struct CommandBarPreviewPanel: View {
     let content: Content?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Theme.space16) {
             if let content = content {
                 // Header
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Theme.space6) {
                     Text(content.title)
-                        .font(.headline)
+                        .font(Theme.listTitleFont)
                         .lineLimit(2)
 
-                    Text(content.sourceType.rawValue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: Theme.space4) {
+                        Image(systemName: Theme.sourceTypeIcon(content.sourceType))
+                            .font(.system(size: 10))
+                        Text(content.sourceType.rawValue)
+                            .font(Theme.captionFont)
+                    }
+                    .foregroundStyle(Theme.sourceTypeColor(content.sourceType))
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Content: \(content.title)")
@@ -26,27 +31,28 @@ struct CommandBarPreviewPanel: View {
 
                 // Content preview
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Theme.space12) {
                         if let l0 = content.l0Summary {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: Theme.space4) {
                                 Text("Summary")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(Theme.captionFont)
+                                    .foregroundStyle(Theme.textSecondary)
                                 Text(l0)
-                                    .font(.body)
+                                    .font(Theme.l2Font)
+                                    .lineSpacing(Theme.l2LineSpacing)
                             }
                             .accessibilityElement(children: .combine)
                             .accessibilityLabel("Summary: \(l0)")
                         }
 
                         if let outline = content.l1Outline, !outline.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: Theme.space4) {
                                 Text("Outline")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(Theme.captionFont)
+                                    .foregroundStyle(Theme.textSecondary)
                                 ForEach(outline.prefix(5)) { point in
                                     Text("• \(point.point)")
-                                        .font(.caption)
+                                        .font(Theme.captionFont)
                                 }
                             }
                             .accessibilityElement(children: .combine)
@@ -60,7 +66,7 @@ struct CommandBarPreviewPanel: View {
                 Divider()
 
                 // Quick actions
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.space8) {
                     Button("Import") {
                         // Action handled by parent
                     }
@@ -83,7 +89,7 @@ struct CommandBarPreviewPanel: View {
                 .accessibilityHint("Select a result to see preview")
             }
         }
-        .padding()
+        .padding(Theme.space16)
         .frame(width: 300)
         .background(.ultraThinMaterial)
         .accessibilityElement(children: .contain)

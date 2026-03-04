@@ -1,4 +1,5 @@
 import SwiftUI
+import UI
 
 /// Display and manage tags for a content item
 struct TagsView: View {
@@ -11,9 +12,8 @@ struct TagsView: View {
     @State private var newTagName = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Display existing tags
-            FlowLayout(spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space6) {
+            FlowLayout(spacing: 6) {
                 ForEach(tags, id: \.self) { tag in
                     TagChip(text: tag) {
                         Task {
@@ -22,12 +22,26 @@ struct TagsView: View {
                     }
                 }
 
-                // Add button
+                // Dashed add button
                 Button {
                     showingTagPicker = true
                 } label: {
-                    Image(systemName: "plus.circle")
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Tag")
+                            .font(Theme.captionFont)
+                    }
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                            .strokeBorder(
+                                Theme.borderSubtle,
+                                style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                            )
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -63,11 +77,10 @@ struct TagPickerView: View {
     let onCreateNew: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.space12) {
             Text("Add Tag")
-                .font(.headline)
+                .font(.system(size: 14, weight: .semibold))
 
-            // Create new tag
             HStack {
                 TextField("New tag name", text: $newTagName)
                     .textFieldStyle(.roundedBorder)
@@ -80,31 +93,34 @@ struct TagPickerView: View {
 
             Divider()
 
-            // Select existing tag
             Text("Or select existing:")
-                .font(.caption)
+                .font(Theme.captionFont)
                 .foregroundStyle(.secondary)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.space4) {
                     ForEach(availableTags, id: \.self) { tag in
                         Button {
                             onSelect(tag)
                         } label: {
-                            HStack {
+                            HStack(spacing: Theme.space8) {
                                 Image(systemName: "tag")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.accent.opacity(0.7))
                                 Text(tag)
+                                    .font(Theme.metaFont)
                                 Spacer()
                             }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, Theme.space4)
                     }
 
                     if availableTags.isEmpty {
                         Text("No available tags")
                             .foregroundStyle(.secondary)
+                            .font(Theme.captionFont)
                             .italic()
                     }
                 }
@@ -116,7 +132,7 @@ struct TagPickerView: View {
 
 /// Simple flow layout for tags
 struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
+    var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let result = FlowResult(in: proposal.width ?? 0, subviews: subviews, spacing: spacing)

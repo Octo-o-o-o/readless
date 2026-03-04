@@ -2,6 +2,7 @@
 import SwiftUI
 import LiquidGlassKit
 import AIServices
+import UI
 
 // Simple mock provider for input parsing (doesn't need actual AI)
 private struct SimpleMockProvider: AIProviderProtocol {
@@ -131,7 +132,7 @@ struct CommandBarWindow: View {
         }
         .frame(minHeight: 200, maxHeight: 500)
         .background(.ultraThinMaterial)
-        .cornerRadius(16)
+        .cornerRadius(Theme.radiusLarge)
         .shadow(radius: 40, x: 0, y: 20)
         .opacity(coordinator.isCommandBarVisible ? 1 : 0)
         .scaleEffect(coordinator.isCommandBarVisible ? 1.0 : (reduceMotion ? 1.0 : 0.9))
@@ -200,15 +201,15 @@ struct ErrorBanner: View {
 
     @ViewBuilder
     private func errorBannerContent(errorText: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.space12) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.system(size: 16))
                 .accessibilityHidden(true)
 
             Text(errorText)
-                .font(.system(size: 13))
-                .foregroundStyle(.primary)
+                .font(Theme.metaFont)
+                .foregroundStyle(Theme.textPrimary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -218,22 +219,22 @@ struct ErrorBanner: View {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .font(.system(size: 16))
             }
             .buttonStyle(.plain)
             .help("Dismiss")
             .accessibilityLabel("Dismiss error")
         }
-        .padding(12)
+        .padding(Theme.space12)
         .background(Color.orange.opacity(0.15))
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: Theme.radiusSmall)
                 .stroke(Color.orange.opacity(0.3), lineWidth: 1)
         }
-        .cornerRadius(8)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .cornerRadius(Theme.radiusSmall)
+        .padding(.horizontal, Theme.space12)
+        .padding(.bottom, Theme.space8)
     }
 
     private func friendlyMessage(for error: String) -> String {

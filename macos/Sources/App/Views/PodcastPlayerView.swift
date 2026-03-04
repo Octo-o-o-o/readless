@@ -12,7 +12,7 @@ struct PodcastPlayerView: View {
     @State private var viewModel = PodcastPlayerViewModel()
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Theme.space16) {
             // Progress
             Slider(value: $viewModel.progress, in: 0...1)
                 .tint(Theme.accent)
@@ -22,20 +22,23 @@ struct PodcastPlayerView: View {
                 Spacer()
                 Text(PodcastPlayerViewModel.formatTime(viewModel.duration))
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.tertiary)
+            .font(Theme.captionFont.monospacedDigit())
+            .foregroundStyle(Theme.textTertiary)
 
             // Controls
-            HStack(spacing: 32) {
+            HStack(spacing: Theme.space32) {
                 Button { viewModel.previousChapter() } label: {
                     Image(systemName: "backward.end.fill")
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 Button { viewModel.togglePlayPause() } label: {
                     Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                         .font(.title2)
+                        .foregroundStyle(Theme.accent)
                 }
                 Button { viewModel.nextChapter() } label: {
                     Image(systemName: "forward.end.fill")
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
             .buttonStyle(.plain)
@@ -43,21 +46,22 @@ struct PodcastPlayerView: View {
             // Chapters
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Theme.space8) {
                     ForEach(Array(viewModel.chapters.enumerated()), id: \.offset) { index, chapter in
-                        HStack {
+                        HStack(spacing: Theme.space8) {
                             Circle()
-                                .fill(index == viewModel.currentChapterIndex ? Theme.accent : Color.gray.opacity(0.3))
+                                .fill(index == viewModel.currentChapterIndex ? Theme.accent : Theme.borderMedium)
                                 .frame(width: 6, height: 6)
                             Text(chapter.title)
                                 .font(index == viewModel.currentChapterIndex ? Theme.l1Font : Theme.l2Font)
-                                .foregroundStyle(index == viewModel.currentChapterIndex ? .primary : .secondary)
+                                .foregroundStyle(index == viewModel.currentChapterIndex ? Theme.textPrimary : Theme.textSecondary)
                         }
+                        .padding(.vertical, Theme.space2)
                     }
                 }
             }
         }
-        .padding()
+        .padding(Theme.space20)
         .focusable()
         .onKeyPress(.space) { viewModel.togglePlayPause(); return .handled }
         .onKeyPress(characters: CharacterSet(charactersIn: "[")) { _ in viewModel.previousChapter(); return .handled }

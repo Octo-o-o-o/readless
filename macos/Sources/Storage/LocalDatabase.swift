@@ -199,6 +199,17 @@ public final class LocalDatabase {
         }
     }
 
+    /// Assign a user_id to legacy cached rows that predate multi-user cache support.
+    /// This makes existing local cache immediately usable after upgrading to v4.
+    public func claimLegacyCache(userId: String) async throws {
+        try await dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE contents SET user_id = ? WHERE user_id IS NULL",
+                arguments: [userId]
+            )
+        }
+    }
+
     /// Fetch all contents ordered by creation date (newest first).
     /// If userId is provided, only fetches content for that user.
     public func fetchContents(limit: Int = 100, offset: Int = 0, userId: String? = nil) async throws -> [Content] {
@@ -316,6 +327,64 @@ public final class LocalDatabase {
             } else {
                 try ContentRecord.deleteAll(db)
             }
+        }
+    }
+
+    // MARK: - Paragraph Cache
+
+    /// Save paragraphs for a content item (replaces existing).
+    public func saveParagraphs(_ paragraphs: [(anchorID: String, text: String)], contentId: String) async throws {
+        try await dbQueue.write { db in
+            // Delete existing paragraphs for this content
+            try db.execute(sql: "DELETE FROM paragraphs WHERE content_id = ?", arguments: [contentId])
+
+            // Insert new paragraphs
+            for (index, para) in paragraphs.enumerated() {
+                let record = ParagraphRecord(
+                    id: "\(contentId)_\(index)",
+                    contentId: contentId,
+                    anchorId: para.anchorID,
+                    text: para.text,
+                    position: index
+                )
+                try record.insert(db)
+            }
+        }
+    }
+
+    /// Fetch cached paragraphs for a content item.
+    public func fetchParagraphs(contentId: String) async throws -> [(anchorID: String, text: String)] {
+        try await dbQueue.read { db in
+            let records = try ParagraphRecord
+                .filter(Column("content_id") == contentId)
+                .order(Column("position").asc)
+                .fetchAll(db)
+            return records.map { (anchorID: $0.anchorId, text: $0.text) }
+        }
+    }
+
+    // MARK: - Expanded Detail Cache
+
+    /// Save an expanded detail for a specific outline point.
+    public func saveExpandedDetail(contentId: String, pointIndex: Int, detailText: String) async throws {
+        try await dbQueue.write { db in
+            let record = ExpandedDetailRecord(
+                contentId: contentId,
+                pointIndex: pointIndex,
+                detailText: detailText,
+                cachedAt: Date()
+            )
+            try record.save(db)  // INSERT or UPDATE via primary key
+        }
+    }
+
+    /// Fetch all cached expanded details for a content item.
+    public func fetchExpandedDetails(contentId: String) async throws -> [Int: String] {
+        try await dbQueue.read { db in
+            let records = try ExpandedDetailRecord
+                .filter(Column("content_id") == contentId)
+                .fetchAll(db)
+            return Dictionary(uniqueKeysWithValues: records.map { ($0.pointIndex, $0.detailText) })
         }
     }
 }

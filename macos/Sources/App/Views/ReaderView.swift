@@ -74,15 +74,47 @@ struct ReaderView: View {
 
                 // Main content display
                 if let content = viewModel.displayedContent {
-                    // L0 header: title + one-line summary
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(content.title)
-                            .font(Theme.titleFont)
+                    // L0 header: title + one-line summary + metadata
+                    VStack(alignment: .leading, spacing: Theme.space12) {
+                        // Source type & timestamp row
+                        if let originalContent = viewModel.content {
+                            HStack(spacing: Theme.space8) {
+                                HStack(spacing: Theme.space4) {
+                                    Image(systemName: Theme.sourceTypeIcon(originalContent.sourceType))
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text(originalContent.sourceType.rawValue.uppercased())
+                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                        .tracking(0.5)
+                                }
+                                .foregroundStyle(Theme.sourceTypeColor(originalContent.sourceType))
+                                .padding(.horizontal, Theme.space8)
+                                .padding(.vertical, Theme.space4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                                        .fill(Theme.sourceTypeColor(originalContent.sourceType).opacity(0.12))
+                                )
 
+                                Text(originalContent.createdAt.relativeFormatted())
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Theme.textTertiary)
+
+                                Spacer()
+                            }
+                        }
+
+                        // Title
+                        Text(content.title)
+                            .font(.system(size: 24, weight: .bold))
+                            .lineSpacing(Theme.titleLineSpacing)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        // L0 summary
                         if let summary = content.l0Summary {
                             Text(summary)
-                                .font(Theme.l0Font)
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundStyle(.secondary.opacity(0.85))
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
 
                         // Tags section
@@ -97,18 +129,24 @@ struct ReaderView: View {
                                     await removeTag(tagName)
                                 }
                             )
+                            .padding(.top, Theme.space4)
                         }
                     }
-                    .padding()
+                    .padding(.horizontal, Theme.space24)
+                    .padding(.top, Theme.space24)
+                    .padding(.bottom, Theme.space16)
 
-                    Divider()
+                    // Subtle separator
+                    Rectangle()
+                        .fill(Theme.borderSubtle)
+                        .frame(height: 1)
+                        .padding(.horizontal, Theme.space24)
 
                     // L1 outline
                     if let outline = content.l1Outline {
                         OutlineView(
                             points: outline,
-                            focusedIndex: $viewModel.focusedIndex,
-                            expandedDetails: viewModel.expandedDetails,
+                            viewModel: viewModel,
                             onExpand: { index in
                                 Task { await viewModel.expandPoint(at: index) }
                             },
@@ -137,10 +175,10 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var languageToolbar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.space12) {
             Text("Language:")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.textSecondary)
 
             Button(action: { viewModel.toggleTranslation(show: false) }) {
                 Text("Original")
@@ -169,9 +207,9 @@ struct ReaderView: View {
 
             Spacer()
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .padding(.horizontal, Theme.space16)
+        .padding(.vertical, Theme.space8)
+        .background(Theme.surfaceFloating)
     }
 
     private func languageName(_ code: String) -> String {

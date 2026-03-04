@@ -15,27 +15,27 @@ struct SourceTracePanel: View {
             // Header
             HStack {
                 Text("Original Text")
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button {
                     isPresented = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Theme.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close source panel")
             }
-            .padding()
+            .padding(Theme.space16)
 
             Divider()
 
             // Paragraph list
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(alignment: .leading, spacing: Theme.space12) {
                         ForEach(paragraphs, id: \.anchorID) { para in
-                            HStack(alignment: .top, spacing: 8) {
+                            HStack(alignment: .top, spacing: Theme.space8) {
                                 // Anchor label
                                 Text(para.anchorID)
                                     .font(Theme.citationFont)
@@ -45,21 +45,30 @@ struct SourceTracePanel: View {
                                 // Paragraph text with highlight
                                 Text(para.text)
                                     .font(Theme.l2Font)
-                                    .lineSpacing(Theme.lineSpacing)
-                                    .padding(8)
+                                    .lineSpacing(Theme.l2LineSpacing)
+                                    .padding(Theme.space8)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 6)
+                                        RoundedRectangle(cornerRadius: Theme.radiusSmall)
                                             .fill(
                                                 para.anchorID == highlightAnchor
-                                                    ? Color.yellow.opacity(0.15)
+                                                    ? Theme.highlightBg
                                                     : .clear
+                                            )
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                                            .strokeBorder(
+                                                para.anchorID == highlightAnchor
+                                                    ? Theme.highlightBorder
+                                                    : .clear,
+                                                lineWidth: 1
                                             )
                                     )
                             }
                             .id(para.anchorID)
                         }
                     }
-                    .padding()
+                    .padding(Theme.space16)
                 }
                 .onAppear {
                     if let anchor = highlightAnchor {
