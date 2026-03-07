@@ -11,18 +11,19 @@ struct CommandBarInputField: View {
     @State private var isDropTargeted = false
 
     var body: some View {
-        HStack(spacing: Theme.space12) {
+        HStack(alignment: .top, spacing: Theme.space12) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Theme.textSecondary)
                 .font(.title3)
+                .padding(.top, 6)
                 .accessibilityHidden(true)
 
-            TextField("Type to search or paste URL...", text: $query)
+            TextField("Type to search or paste URL...", text: $query, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.title2)
+                .lineLimit(1...5)
                 .focused($isFocused)
                 .onAppear {
-                    // Auto-focus when Command Bar appears
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         isFocused = true
                     }
@@ -62,18 +63,21 @@ struct CommandBarInputField: View {
                     guard let data = data as? Data,
                           let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
 
-                    Task { @MainActor in
-                        if let fileData = try? Data(contentsOf: url) {
-                            if url.pathExtension.lowercased() == "pdf" {
-                                onDrop?(.pdf(fileData))
-                            } else if ["jpg", "jpeg", "png"].contains(url.pathExtension.lowercased()) {
-                                onDrop?(.image(fileData))
-                            } else {
-                                if let text = String(data: fileData, encoding: .utf8) {
-                                    onDrop?(.text(text))
-                                }
-                            }
+                    let onDrop = self.onDrop
+                    Task.detached(priority: .userInitiated) {
+                        guard let fileData = try? Data(contentsOf: url) else { return }
+                        let ext = url.pathExtension.lowercased()
+                        let input: CommandBarInput
+                        if ext == "pdf" {
+                            input = .pdf(fileData)
+                        } else if ["jpg", "jpeg", "png"].contains(ext) {
+                            input = .image(fileData)
+                        } else if let text = String(data: fileData, encoding: .utf8) {
+                            input = .text(text)
+                        } else {
+                            return
                         }
+                        await MainActor.run { onDrop?(input) }
                     }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {

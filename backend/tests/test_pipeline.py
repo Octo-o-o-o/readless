@@ -365,16 +365,17 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
     await db_session.refresh(tag1)
     await db_session.refresh(tag2)
 
-    # Mock extractor to return simple text
+    # Mock extractor to return text long enough for AI summarization (>= 500 chars)
     from app.services.extractor import ExtractedContent, ExtractedParagraph
+    long_text = "This is a comprehensive test article about technology and learning. " * 20
     mock_extracted = ExtractedContent(
         title="Test Article",
         source_url=None,
-        full_text="Test content for summarization.",
+        full_text=long_text,
         paragraphs=[
             ExtractedParagraph(
                 anchor_id="¶1",
-                text="Test content for summarization.",
+                text=long_text,
                 position=0,
             )
         ],
@@ -415,7 +416,7 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
             stmt, *args, **kwargs
         )
 
-    # Mock the extractor, summarizer, and translator
+    # Mock the extractor, summarizer, translator, and pre_generate_details
     extract_mock = AsyncMock(return_value=mock_extracted)
     with patch.object(
         pipeline.extractor, "extract_text", extract_mock
@@ -423,6 +424,9 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
         mock_summarizer = AsyncMock()
         mock_summarizer.generate_summary = AsyncMock(
             return_value=mock_summary
+        )
+        mock_summarizer.pre_generate_details = AsyncMock(
+            return_value=mock_summary.l1_outline
         )
 
         mock_translator = AsyncMock()
@@ -462,7 +466,7 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
                                     # Process content
                                     await pipeline.process(
                                         source_type="text",
-                                        body="Test content for summarization.",
+                                        body=long_text,
                                         user_id=test_user_id,
                                         db=db_session,
                                     )
@@ -505,16 +509,17 @@ async def test_process_content_skips_nonexistent_tags(db_session):
     await db_session.commit()
     await db_session.refresh(tag1)
 
-    # Mock extractor to return simple text
+    # Mock extractor to return text long enough for AI summarization (>= 500 chars)
     from app.services.extractor import ExtractedContent, ExtractedParagraph
+    long_text = "This is a comprehensive test article about technology and learning. " * 20
     mock_extracted = ExtractedContent(
         title="Test Article",
         source_url=None,
-        full_text="Test content for summarization.",
+        full_text=long_text,
         paragraphs=[
             ExtractedParagraph(
                 anchor_id="¶1",
-                text="Test content for summarization.",
+                text=long_text,
                 position=0,
             )
         ],
@@ -555,7 +560,7 @@ async def test_process_content_skips_nonexistent_tags(db_session):
             stmt, *args, **kwargs
         )
 
-    # Mock the extractor, summarizer, and translator
+    # Mock the extractor, summarizer, translator, and pre_generate_details
     extract_mock = AsyncMock(return_value=mock_extracted)
     with patch.object(
         pipeline.extractor, "extract_text", extract_mock
@@ -563,6 +568,9 @@ async def test_process_content_skips_nonexistent_tags(db_session):
         mock_summarizer = AsyncMock()
         mock_summarizer.generate_summary = AsyncMock(
             return_value=mock_summary
+        )
+        mock_summarizer.pre_generate_details = AsyncMock(
+            return_value=mock_summary.l1_outline
         )
 
         mock_translator = AsyncMock()
@@ -602,7 +610,7 @@ async def test_process_content_skips_nonexistent_tags(db_session):
                                     # Process content
                                     await pipeline.process(
                                         source_type="text",
-                                        body="Test content for summarization.",
+                                        body=long_text,
                                         user_id=test_user_id,
                                         db=db_session,
                                     )

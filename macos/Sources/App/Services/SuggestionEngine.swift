@@ -42,6 +42,7 @@ final class SuggestionEngine {
     private let contentManager: ContentManager
     private var cache: [String: CachedSuggestions] = [:]
     private let cacheExpirationInterval: TimeInterval = 300 // 5 minutes
+    private let maxCacheSize = 50
 
     // MARK: - Configuration
 
@@ -99,11 +100,15 @@ final class SuggestionEngine {
         // Limit total suggestions
         let finalSuggestions = Array(allSuggestions.prefix(maxTotalSuggestions))
 
-        // Cache results
+        // Cache results with LRU eviction
         cache[content.id] = CachedSuggestions(
             suggestions: finalSuggestions,
             cachedAt: Date()
         )
+        if cache.count > maxCacheSize {
+            let oldest = cache.min(by: { $0.value.cachedAt < $1.value.cachedAt })?.key
+            if let oldest { cache.removeValue(forKey: oldest) }
+        }
 
         return finalSuggestions
     }
@@ -208,21 +213,21 @@ final class SuggestionEngine {
 
     // MARK: - Private Helpers
 
+    private static let stopWords: Set<String> = [
+        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
+        "this", "that", "these", "those", "it", "its", "they", "their",
+        // Chinese stop words
+        "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "个"
+    ]
+
     /// Extracts keywords from text (simple word frequency approach).
     private func extractKeywords(from text: String) -> Set<String> {
-        let stopWords = Set([
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-            "of", "with", "by", "from", "as", "is", "was", "are", "were", "be",
-            "this", "that", "these", "those", "it", "its", "they", "their",
-            // Chinese stop words
-            "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "个"
-        ])
-
         let words = text
             .lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 } // Min 2 characters
-            .filter { !stopWords.contains($0) }
+            .filter { !Self.stopWords.contains($0) }
 
         return Set(words)
     }

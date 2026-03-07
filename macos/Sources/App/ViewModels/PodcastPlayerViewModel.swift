@@ -19,14 +19,19 @@ final class PodcastPlayerViewModel: NSObject {
     // MARK: - Loading
 
     func load(url: URL, chapters: [(title: String, outlinePointIndex: Int?)]) {
+        // Remove old observer before replacing player
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
         self.chapters = chapters
         player = AVPlayer(url: url)
         timeObserver = player?.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.1, preferredTimescale: 10),
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 2),
             queue: .main
         ) { [weak self] time in
-            guard let self else { return }
-            Task { @MainActor in
+            MainActor.assumeIsolated {
+                guard let self else { return }
                 self.currentTime = CMTimeGetSeconds(time)
                 if self.duration > 0 {
                     self.progress = self.currentTime / self.duration

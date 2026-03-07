@@ -8,6 +8,7 @@ import UI
 struct ToastView: View {
     let message: String
     @State private var isVisible = true
+    @State private var dismissTask: Task<Void, Never>?
 
     var body: some View {
         if isVisible {
@@ -19,11 +20,16 @@ struct ToastView: View {
                 .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    dismissTask = Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        guard !Task.isCancelled else { return }
                         withAnimation(.easeOut(duration: 0.3)) {
                             isVisible = false
                         }
                     }
+                }
+                .onDisappear {
+                    dismissTask?.cancel()
                 }
         }
     }
@@ -35,6 +41,7 @@ struct ToastView: View {
 /// and displays a ToastView overlay.
 struct ToastModifier: ViewModifier {
     @State private var toastMessage: String?
+    @State private var dismissTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
@@ -46,10 +53,13 @@ struct ToastModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .showToast)) { notification in
                 guard let message = notification.object as? String else { return }
+                dismissTask?.cancel()
                 withAnimation(.easeIn(duration: 0.2)) {
                     toastMessage = message
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                dismissTask = Task {
+                    try? await Task.sleep(for: .seconds(2.0))
+                    guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.3)) {
                         toastMessage = nil
                     }

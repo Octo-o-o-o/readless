@@ -263,7 +263,7 @@ final class CommandBarService {
         ]
     }
 
-    private func importFromClipboard() async {
+    func importFromClipboard() async {
         guard let text = NSPasteboard.general.string(forType: .string) else {
             aiCoordinator.errorMessage = "No text in clipboard"
             return
@@ -272,34 +272,55 @@ final class CommandBarService {
     }
 
     private func importText(_ text: String) async {
-        aiCoordinator.isLoading = true
-        defer { aiCoordinator.isLoading = false }
+        aiCoordinator.commandBarImportState = .importing
 
-        // Import and display the content
-        await contentManager.importAndDisplay(
-            text: text,
-            appName: "Command Bar",
-            bundleID: nil
-        )
+        do {
+            let content = try await contentManager.importQuietly(
+                text: text,
+                appName: "Command Bar",
+                bundleID: nil
+            )
 
-        // Close command bar after request is sent
-        // (ContentManager will show error toast if backend is not running)
-        aiCoordinator.hideCommandBar()
+            // Signal success — CommandBarWindow handles the auto-dismiss timer
+            aiCoordinator.commandBarImportState = .success
+
+            // Auto-select the imported content in the main view
+            contentManager.processingContent = content
+            contentManager.showResultPanel = true
+        } catch {
+            aiCoordinator.commandBarImportState = .idle
+            let message = userFriendlyErrorMessage(for: error)
+            aiCoordinator.errorMessage = message
+        }
     }
 
     private func importURL(_ url: URL) async {
-        aiCoordinator.isLoading = true
-        defer { aiCoordinator.isLoading = false }
+        aiCoordinator.commandBarImportState = .importing
 
-        // Import URL content
-        await contentManager.importAndDisplay(
-            text: url.absoluteString,
-            appName: "Command Bar",
-            bundleID: nil
-        )
+        do {
+            let content = try await contentManager.importQuietly(
+                text: url.absoluteString,
+                appName: "Command Bar",
+                bundleID: nil
+            )
 
-        // Close command bar after successful import
-        aiCoordinator.hideCommandBar()
+            aiCoordinator.commandBarImportState = .success
+            contentManager.processingContent = content
+            contentManager.showResultPanel = true
+        } catch {
+            aiCoordinator.commandBarImportState = .idle
+            let message = userFriendlyErrorMessage(for: error)
+            aiCoordinator.errorMessage = message
+        }
+    }
+
+    private func userFriendlyErrorMessage(for error: Error) -> String {
+        if let apiError = error as? APIError {
+            return apiError.localizedDescription
+        } else if error is URLError {
+            return "Could not connect. Please check your internet connection."
+        }
+        return "Import failed. Please try again."
     }
 
 }

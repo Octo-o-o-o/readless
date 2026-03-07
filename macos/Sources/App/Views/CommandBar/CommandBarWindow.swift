@@ -1,6 +1,6 @@
 // macos/Sources/App/Views/CommandBar/CommandBarWindow.swift
 import SwiftUI
-import LiquidGlassKit
+import AppKit
 import AIServices
 import UI
 
@@ -28,6 +28,8 @@ struct CommandBarWindow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query: String = ""
     @State private var service: CommandBarService!
+    @State private var clipboardContent: String?
+    @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,29 +45,37 @@ struct CommandBarWindow: View {
                         }
                     )
 
-                    Divider()
-                        .padding(.horizontal)
-
-                    ScrollView {
-                        CommandBarResultsList(
-                            results: coordinator.commandResults,
-                            selectedIndex: coordinator.selectedResultIndex
-                        )
+                    // Inline progress bar (replaces divider during loading)
+                    if coordinator.commandBarImportState == .importing {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .tint(.accentColor)
+                            .padding(.horizontal, Theme.space16)
+                            .padding(.top, Theme.space8)
+                            .transition(.opacity)
+                    } else {
+                        Divider()
+                            .padding(.horizontal)
                     }
-                    .frame(maxHeight: 400)
-                    .accessibilityLabel("Search results")
-                    .accessibilityHint("\(coordinator.commandResults.count) results available")
-                    .overlay {
-                        if coordinator.isLoading {
-                            Color.black.opacity(0.2)
-                                .overlay {
-                                    ProgressView()
-                                        .controlSize(.large)
-                                        .scaleEffect(1.2)
-                                        .accessibilityLabel("Loading results")
-                                }
+
+                    // Content area: clipboard, results, or import states
+                    ZStack {
+                        switch coordinator.commandBarImportState {
+                        case .idle:
+                            idleContent
+                                .transition(.opacity)
+
+                        case .importing:
+                            importingContent
+                                .transition(.opacity)
+
+                        case .success:
+                            successContent
+                                .transition(.scale(scale: 0.9).combined(with: .opacity))
                         }
                     }
+                    .frame(maxHeight: 400)
+                    .animation(reduceMotion ? .none : .easeInOut(duration: 0.25), value: coordinator.commandBarImportState)
                 }
                 .frame(width: 600)
                 .accessibilityElement(children: .contain)
@@ -102,6 +112,7 @@ struct CommandBarWindow: View {
             return .handled
         }
         .onKeyPress(.return) {
+            guard coordinator.commandBarImportState == .idle else { return .ignored }
             Task {
                 await coordinator.executeSelectedResult()
             }
@@ -119,15 +130,31 @@ struct CommandBarWindow: View {
         .onAppear {
             service = CommandBarService(aiCoordinator: coordinator)
             service.search("")  // Show quick actions
+            clipboardContent = NSPasteboard.general.string(forType: .string)
         }
-        .onChange(of: query) { oldValue, newValue in
-            service.search(newValue)
-            // Clear error on new search
+        .onChange(of: query) { _, newValue in
+            searchTask?.cancel()
             coordinator.errorMessage = nil
+            searchTask = Task {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                service.search(newValue)
+            }
         }
         .onChange(of: coordinator.isCommandBarVisible) { oldValue, newValue in
             if newValue {
                 coordinator.resetSelection()
+                clipboardContent = NSPasteboard.general.string(forType: .string)
+            }
+        }
+        .onChange(of: coordinator.commandBarImportState) { oldValue, newValue in
+            if newValue == .success {
+                // Auto-dismiss after brief success display
+                Task {
+                    try? await Task.sleep(for: .milliseconds(900))
+                    guard coordinator.commandBarImportState == .success else { return }
+                    coordinator.hideCommandBar()
+                }
             }
         }
         .frame(minHeight: 200, maxHeight: 500)
@@ -141,6 +168,144 @@ struct CommandBarWindow: View {
         .animation(reduceMotion ? .none : .spring(response: 0.3, dampingFraction: 0.8), value: coordinator.errorMessage)
     }
 
+    // MARK: - Idle State Content
+
+    @ViewBuilder
+    private var idleContent: some View {
+        VStack(spacing: 0) {
+            // Clipboard paste shortcut
+            if query.isEmpty, let clipboard = clipboardContent, !clipboard.isEmpty {
+                clipboardPasteRow(clipboard)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+
+                Divider()
+                    .padding(.horizontal)
+            }
+
+            // Results list with subtle search loading
+            ScrollView {
+                if coordinator.isLoading {
+                    HStack(spacing: Theme.space8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Searching…")
+                            .font(Theme.captionFont)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.space16)
+                } else {
+                    CommandBarResultsList(
+                        results: coordinator.commandResults,
+                        selectedIndex: coordinator.selectedResultIndex
+                    )
+                }
+            }
+            .accessibilityLabel("Search results")
+            .accessibilityHint("\(coordinator.commandResults.count) results available")
+        }
+    }
+
+    // MARK: - Importing State Content
+
+    private var importingContent: some View {
+        VStack(spacing: Theme.space16) {
+            Spacer()
+
+            Image(systemName: "arrow.down.doc")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(Theme.textSecondary)
+                .symbolEffect(.pulse, options: .repeating)
+
+            Text("Importing content…")
+                .font(Theme.listTitleFont)
+                .foregroundStyle(Theme.textPrimary)
+
+            Text("Generating summary and outline")
+                .font(Theme.captionFont)
+                .foregroundStyle(Theme.textSecondary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, minHeight: 140)
+        .padding(Theme.space16)
+    }
+
+    // MARK: - Success State Content
+
+    private var successContent: some View {
+        VStack(spacing: Theme.space12) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.green)
+                .symbolEffect(.bounce, value: coordinator.commandBarImportState)
+
+            Text("Content imported")
+                .font(Theme.listTitleFont)
+                .foregroundStyle(Theme.textPrimary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .padding(Theme.space16)
+    }
+
+    // MARK: - Clipboard Paste Row
+
+    private func clipboardPasteRow(_ clipboard: String) -> some View {
+        Button {
+            Task {
+                await service.importFromClipboard()
+            }
+        } label: {
+            HStack(spacing: Theme.space12) {
+                Image(systemName: "doc.on.clipboard.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: Theme.space2) {
+                    Text("Paste clipboard content")
+                        .font(Theme.listTitleFont)
+                        .foregroundStyle(Theme.textPrimary)
+
+                    Text(clipboardPreview(clipboard))
+                        .font(Theme.captionFont)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text("⌘V")
+                    .font(.system(.caption, design: .rounded).weight(.medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Theme.surfaceFloating.opacity(0.8))
+                    )
+            }
+            .padding(.horizontal, Theme.space16)
+            .padding(.vertical, Theme.space8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func clipboardPreview(_ text: String) -> String {
+        let cleaned = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.count > 80 {
+            return String(cleaned.prefix(80)) + "…"
+        }
+        return cleaned
+    }
+
+    // MARK: - Input Handling
+
     private func handleInput(_ input: CommandBarInput) async {
         do {
             coordinator.isLoading = true
@@ -151,7 +316,6 @@ struct CommandBarWindow: View {
                 config: AIServiceConfig.default.inputParsing
             ).parse(input)
 
-            // Handle parsed input
             switch parsed {
             case .plainText(let text):
                 query = text
@@ -184,7 +348,6 @@ struct ErrorBanner: View {
             .accessibilityLabel("Error")
             .accessibilityValue(errorText)
             .onAppear {
-                // Auto-dismiss after 5 seconds
                 autoDismissTask = Task {
                     try? await Task.sleep(for: .seconds(5))
                     if !Task.isCancelled {
@@ -240,7 +403,6 @@ struct ErrorBanner: View {
     private func friendlyMessage(for error: String) -> String {
         let lowercased = error.lowercased()
 
-        // Network errors
         if lowercased.contains("network") ||
            lowercased.contains("connection") ||
            lowercased.contains("unreachable") ||
@@ -248,7 +410,6 @@ struct ErrorBanner: View {
             return "Couldn't connect. Check your internet connection."
         }
 
-        // Parse errors
         if lowercased.contains("parse") ||
            lowercased.contains("invalid") ||
            lowercased.contains("format") ||
@@ -256,7 +417,6 @@ struct ErrorBanner: View {
             return "Couldn't understand that input. Try a different format?"
         }
 
-        // File errors
         if lowercased.contains("file") ||
            lowercased.contains("read") ||
            lowercased.contains("permission") ||
@@ -264,7 +424,6 @@ struct ErrorBanner: View {
             return "Couldn't read that file. Make sure it's accessible."
         }
 
-        // API errors
         if lowercased.contains("api") ||
            lowercased.contains("server") ||
            lowercased.contains("request") ||
@@ -272,14 +431,12 @@ struct ErrorBanner: View {
             return "Something went wrong with the server. Please try again."
         }
 
-        // Authentication errors
         if lowercased.contains("auth") ||
            lowercased.contains("token") ||
            lowercased.contains("unauthorized") {
             return "Authentication issue. Please sign in again."
         }
 
-        // Generic fallback - keep it short and friendly
         if error.count > 100 {
             return "Something went wrong. Please try again."
         }
@@ -320,17 +477,24 @@ struct ErrorBanner: View {
         }
 }
 
-#Preview("Loading State") {
+#Preview("Importing State") {
     @Previewable @State var coordinator = AICoordinator()
 
     CommandBarWindow()
         .environment(coordinator)
         .onAppear {
             coordinator.isCommandBarVisible = true
-            coordinator.isLoading = true
-            coordinator.commandResults = [
-                .init(title: "Import from clipboard", subtitle: "⌘V", icon: "doc.text") {},
-                .init(title: "Search all content", subtitle: "⌘F", icon: "magnifyingglass") {}
-            ]
+            coordinator.commandBarImportState = .importing
+        }
+}
+
+#Preview("Success State") {
+    @Previewable @State var coordinator = AICoordinator()
+
+    CommandBarWindow()
+        .environment(coordinator)
+        .onAppear {
+            coordinator.isCommandBarVisible = true
+            coordinator.commandBarImportState = .success
         }
 }

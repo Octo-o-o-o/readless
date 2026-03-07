@@ -12,6 +12,7 @@ final class FolderWatchService {
     // MARK: - Properties
 
     private var stream: FSEventStreamRef?
+    private var retainedSelf: Unmanaged<FolderWatchService>?
     private let callback: ([String]) -> Void
     private var watchedPaths: [String] = []
     private var knownFiles: Set<String> = []
@@ -48,8 +49,10 @@ final class FolderWatchService {
             }
         }
 
+        let retained = Unmanaged.passRetained(self)
+        retainedSelf = retained
         var context = FSEventStreamContext()
-        context.info = Unmanaged.passUnretained(self).toOpaque()
+        context.info = retained.toOpaque()
 
         stream = FSEventStreamCreate(
             kCFAllocatorDefault,
@@ -66,7 +69,8 @@ final class FolderWatchService {
         )
 
         guard let stream else { return }
-        FSEventStreamSetDispatchQueue(stream, DispatchQueue.global(qos: .utility))
+        // Dispatch on main to avoid data race on knownFiles (callback already hops to main).
+        FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
         FSEventStreamStart(stream)
     }
 
@@ -77,6 +81,9 @@ final class FolderWatchService {
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
         self.stream = nil
+        // Balance the passRetained from watch(paths:)
+        retainedSelf?.release()
+        retainedSelf = nil
     }
 
     deinit { stop() }
@@ -99,9 +106,8 @@ final class FolderWatchService {
         }
 
         if !newFiles.isEmpty {
-            DispatchQueue.main.async { [weak self] in
-                self?.callback(newFiles)
-            }
+            // Already on main queue (FSEvent stream dispatched to main)
+            callback(newFiles)
         }
     }
 }

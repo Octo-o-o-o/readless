@@ -15,6 +15,7 @@ public final class CacheManager {
 
     private let database: LocalDatabase
     private let userDefaults: UserDefaults
+    private var evictionTask: Task<Void, Never>?
 
     /// Singleton instance
     public static let shared = CacheManager(
@@ -45,8 +46,9 @@ public final class CacheManager {
             let clamped = max(SizeLimit.minimumLimit, newValue)
             userDefaults.set(clamped, forKey: "cacheSizeLimit")
 
-            // Trigger eviction if over limit
-            Task { try? await evictIfNeeded() }
+            // Cancel previous eviction before starting a new one
+            evictionTask?.cancel()
+            evictionTask = Task { try? await evictIfNeeded() }
         }
     }
 
@@ -83,60 +85,43 @@ public final class CacheManager {
         print("[CacheManager] Cache size \(current) exceeds target \(target), freeing \(bytesToFree) bytes")
 
         try await dbQueue.write { db in
-            // Get LRU content IDs (sorted by least recent access)
+            // Query actual estimated size per row instead of hardcoded 100KB
             var sql = """
-                SELECT id FROM contents
+                SELECT id, LENGTH(COALESCE(full_text, '')) + LENGTH(COALESCE(l0_summary, '')) + 1024 AS est_size
+                FROM contents
             """
-
             if userId != nil {
                 sql += " WHERE user_id = ?"
             }
+            sql += " ORDER BY COALESCE(last_accessed_at, updated_at, created_at) ASC"
 
-            sql += """
-                ORDER BY
-                    COALESCE(last_accessed_at, updated_at, created_at) ASC
-            """
-
-            let lruIDs: [String]
+            let rows: [Row]
             if let userId = userId {
-                lruIDs = try String.fetchAll(db, sql: sql, arguments: [userId])
+                rows = try Row.fetchAll(db, sql: sql, arguments: [userId])
             } else {
-                lruIDs = try String.fetchAll(db, sql: sql)
+                rows = try Row.fetchAll(db, sql: sql)
             }
 
             var freedBytes: Int64 = 0
+            var evictedCount = 0
 
-            for id in lruIDs {
-                // Delete content and its associated data
-                try db.execute(
-                    sql: "DELETE FROM contents WHERE id = ?",
-                    arguments: [id]
-                )
+            for row in rows {
+                let id: String = row["id"]
+                let estSize: Int64 = row["est_size"]
 
-                // Delete associated paragraphs (if table exists)
-                try? db.execute(
-                    sql: "DELETE FROM paragraphs WHERE content_id = ?",
-                    arguments: [id]
-                )
+                try db.execute(sql: "DELETE FROM contents WHERE id = ?", arguments: [id])
+                try? db.execute(sql: "DELETE FROM paragraphs WHERE content_id = ?", arguments: [id])
+                try? db.execute(sql: "DELETE FROM expanded_details WHERE content_id = ?", arguments: [id])
 
-                // Delete expanded details cache (if table exists)
-                try? db.execute(
-                    sql: "DELETE FROM expanded_details WHERE content_id = ?",
-                    arguments: [id]
-                )
-
-                // Estimate freed space (rough estimate)
-                freedBytes += 100 * 1024  // ~100KB per content
+                freedBytes += estSize
+                evictedCount += 1
 
                 if freedBytes >= bytesToFree {
                     break
                 }
             }
 
-            // Vacuum database to reclaim space
-            try db.execute(sql: "VACUUM")
-
-            print("[CacheManager] Evicted \(lruIDs.prefix(10).count) items, freed ~\(freedBytes) bytes")
+            print("[CacheManager] Evicted \(evictedCount) items, freed ~\(freedBytes) bytes")
         }
     }
 
@@ -169,7 +154,6 @@ public final class CacheManager {
                     sql: "DELETE FROM contents WHERE user_id = ?",
                     arguments: [userId]
                 )
-                // Paragraphs and expanded_details will be cascade deleted
                 print("[CacheManager] Cleared cache for user: \(userId)")
             } else {
                 try db.execute(sql: "DELETE FROM contents")
@@ -177,6 +161,9 @@ public final class CacheManager {
                 try? db.execute(sql: "DELETE FROM expanded_details")
                 print("[CacheManager] Cleared all cache")
             }
+        }
+
+        try await dbQueue.barrierWriteWithoutTransaction { db in
             try db.execute(sql: "VACUUM")
         }
     }
@@ -207,7 +194,9 @@ public final class CacheManager {
                 )
                 print("[CacheManager] Cleared cache older than \(days) days")
             }
+        }
 
+        try await dbQueue.barrierWriteWithoutTransaction { db in
             try db.execute(sql: "VACUUM")
         }
     }

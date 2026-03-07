@@ -1,6 +1,7 @@
 """Content processing pipeline: extract -> summarize -> store."""
 
 import logging
+import math
 import uuid
 
 from sqlalchemy import select, text
@@ -10,10 +11,19 @@ from app.models.content import Content
 from app.models.content_tag import ContentTag
 from app.models.paragraph import Paragraph
 from app.models.user_tag import UserTag
+from app.schemas.summary import ContentSummary
 from app.services.extractor import ContentExtractor
 from app.services.summarizer import SummarizationService
 
 logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------ #
+#  Content length thresholds for tiered summarization
+# ------------------------------------------------------------------ #
+MIN_CONTENT_LENGTH = 100        # Below: just store, no AI summarization
+MIN_LENGTH_FOR_OUTLINE = 500    # Below: L0 only; above: L0 + L1 outline
+CHARS_PER_OUTLINE_POINT = 500   # One outline point per N chars of content
+MAX_OUTLINE_POINTS = 7          # Upper cap on outline points
 
 
 class ProcessingPipeline:
@@ -56,21 +66,60 @@ class ProcessingPipeline:
         else:
             raise ValueError(f"Unsupported source_type: {source_type}")
 
-        # Step 2: AI Summarize with tag selection
-        # Extract paragraphs as text list for the new generate_summary API
+        # Step 2: Tiered summarization based on content length
+        content_length = len(extracted.full_text)
         paragraph_texts = [p.text for p in extracted.paragraphs]
 
-        summary = await self.summarizer.generate_summary(
-            full_text=extracted.full_text,
-            paragraphs=paragraph_texts,
-            user_id=user_id,
-            db=db,
-        )
+        if content_length < MIN_CONTENT_LENGTH:
+            # Very short content: just store, no AI processing
+            logger.info(
+                "Content too short (%d chars < %d), skipping AI summarization",
+                content_length, MIN_CONTENT_LENGTH,
+            )
+            summary = ContentSummary(
+                l0_summary=extracted.full_text,
+                l1_outline=[],
+                tags=[],
+                keywords=[],
+            )
+            has_chinese = any("\u4e00" <= c <= "\u9fff" for c in extracted.full_text[:200])
+            detected_language = "zh" if has_chinese else "en"
+        else:
+            # Determine outline point count: 0 for short, dynamic for long
+            if content_length < MIN_LENGTH_FOR_OUTLINE:
+                max_points = 0
+                logger.info(
+                    "Short content (%d chars < %d), generating L0 only",
+                    content_length, MIN_LENGTH_FOR_OUTLINE,
+                )
+            else:
+                max_points = min(
+                    math.ceil(content_length / CHARS_PER_OUTLINE_POINT),
+                    MAX_OUTLINE_POINTS,
+                )
+                logger.info(
+                    "Content %d chars → up to %d outline points",
+                    content_length, max_points,
+                )
 
-        # Detect language from L0 summary
-        from app.services.translator import _get_service
-        translator = _get_service()
-        detected_language = await translator.detect_language(summary.l0_summary)
+            summary = await self.summarizer.generate_summary(
+                full_text=extracted.full_text,
+                paragraphs=paragraph_texts,
+                user_id=user_id,
+                db=db,
+                max_outline_points=max_points,
+            )
+
+            # Detect language from L0 summary
+            from app.services.translator import _get_service
+            translator = _get_service()
+            detected_language = await translator.detect_language(summary.l0_summary)
+
+            # Pre-generate L2 details (only if outline exists)
+            if summary.l1_outline:
+                summary.l1_outline = await self.summarizer.pre_generate_details(
+                    extracted, summary.l1_outline
+                )
 
         # Step 3: Store in DB
         content = Content(

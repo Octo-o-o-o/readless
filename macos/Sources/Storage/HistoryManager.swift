@@ -8,30 +8,25 @@ public final class HistoryManager {
 
     /// Maximum number of commands to retain in history
     private let maxHistorySize = 1000
+    /// Counter to throttle cleanup frequency
+    private var insertsSinceCleanup = 0
 
-    /// Singleton instance using the same database as LocalDatabase.
-    public static let shared: HistoryManager = {
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dbFolder = appSupport.appendingPathComponent("Readless", isDirectory: true)
+    /// Singleton instance sharing the same DatabaseQueue as LocalDatabase
+    /// to avoid write-lock contention on the same SQLite file.
+    public static let shared: HistoryManager = try! HistoryManager(dbQueue: LocalDatabase.shared.dbQueue)
 
-        try? fileManager.createDirectory(at: dbFolder, withIntermediateDirectories: true)
-        let dbPath = dbFolder.appendingPathComponent("readless.db").path
-
-        return try! HistoryManager(path: dbPath)
-    }()
+    /// Initialize with a shared DatabaseQueue (production use).
+    public init(dbQueue: DatabaseQueue) throws {
+        self.dbQueue = dbQueue
+        try migrator.migrate(dbQueue)
+        Task { try? await cleanup() }
+    }
 
     /// Initialize with custom database path (useful for testing with ":memory:").
     public init(path: String) throws {
         dbQueue = try DatabaseQueue(path: path)
-
-        // Run migrations to ensure tables exist
         try migrator.migrate(dbQueue)
-
-        // Run cleanup on initialization to maintain max history size
-        Task {
-            try? await cleanup()
-        }
+        Task { try? await cleanup() }
     }
 
     // MARK: - Migration
@@ -109,8 +104,12 @@ public final class HistoryManager {
             }
         }
 
-        // Cleanup after adding to maintain max size
-        try await cleanup()
+        // Cleanup periodically to maintain max size (not on every insert)
+        insertsSinceCleanup += 1
+        if insertsSinceCleanup >= 100 {
+            insertsSinceCleanup = 0
+            try await cleanup()
+        }
     }
 
     // MARK: - Search & Retrieval
@@ -164,27 +163,21 @@ public final class HistoryManager {
     public func cleanup() async throws {
         try await dbQueue.write { db in
             let count = try CommandHistoryRecord.fetchCount(db)
+            guard count > maxHistorySize else { return }
 
-            if count > maxHistorySize {
-                let excess = count - maxHistorySize
-
-                // Get IDs of oldest records to delete
-                let oldestIDs = try String
-                    .fetchAll(
-                        db,
-                        sql: """
-                            SELECT id FROM command_history
-                            ORDER BY executed_at ASC
-                            LIMIT ?
-                        """,
-                        arguments: [excess]
+            let excess = count - maxHistorySize
+            // Single batch DELETE instead of per-row deletion
+            try db.execute(
+                sql: """
+                    DELETE FROM command_history
+                    WHERE id IN (
+                        SELECT id FROM command_history
+                        ORDER BY executed_at ASC
+                        LIMIT ?
                     )
-
-                // Delete oldest records
-                for id in oldestIDs {
-                    try CommandHistoryRecord.deleteOne(db, key: id)
-                }
-            }
+                """,
+                arguments: [excess]
+            )
         }
     }
 

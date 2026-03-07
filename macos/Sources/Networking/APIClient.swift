@@ -54,6 +54,8 @@ public final class APIClient: @unchecked Sendable {
     // Mutable so the token can be updated after authentication.
     public var authToken: String?
     private let session: URLSession
+    /// Deduplication guard: only one token refresh runs at a time.
+    private var activeRefreshTask: Task<Bool, Never>?
 
     /// Get the configured API base URL from UserDefaults or use default localhost
     private static func getConfiguredBaseURL() -> URL {
@@ -94,10 +96,12 @@ public final class APIClient: @unchecked Sendable {
 
         if let token = authToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            print("[APIClient] 🔐 Request to \(url) with auth token (length: \(token.count))")
-        } else {
+        }
+        #if DEBUG
+        if authToken == nil {
             print("[APIClient] ⚠️ Request to \(url) WITHOUT auth token")
         }
+        #endif
 
         req.httpBody = body
 
@@ -134,10 +138,16 @@ public final class APIClient: @unchecked Sendable {
                     {
                         print("[APIClient] 🔄 Token expired, attempting refresh and retry...")
 
-                        await MainActor.run {
-                            NotificationCenter.default.post(name: .refreshAuthToken, object: nil)
+                        // Dedup: reuse in-flight refresh or start a new one
+                        let task = activeRefreshTask ?? Task<Bool, Never> {
+                            defer { activeRefreshTask = nil }
+                            await MainActor.run {
+                                NotificationCenter.default.post(name: .refreshAuthToken, object: nil)
+                            }
+                            return await self.waitForTokenRefreshResult()
                         }
-                        let refreshed = await waitForTokenRefreshResult()
+                        activeRefreshTask = task
+                        let refreshed = await task.value
                         if refreshed {
                             return try await request(path, method: method, body: body, isRetry: true)
                         } else {
@@ -164,31 +174,23 @@ public final class APIClient: @unchecked Sendable {
     }
 
     private func waitForTokenRefreshResult(timeout: Duration = .seconds(5)) async -> Bool {
-        let refreshTask = Task<Bool, Never> {
-            for await notification in NotificationCenter.default.notifications(
-                named: .authTokenRefreshCompleted
-            ) {
-                return notification.userInfo?["success"] as? Bool ?? false
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await notification in NotificationCenter.default.notifications(
+                    named: .authTokenRefreshCompleted
+                ) {
+                    return notification.userInfo?["success"] as? Bool ?? false
+                }
+                return false
             }
-            return false
-        }
-
-        let timeoutTask = Task<Bool, Never> {
-            try? await Task.sleep(for: timeout)
-            return false
-        }
-
-        let result = await withTaskGroup(of: Bool.self) { group in
-            group.addTask { await refreshTask.value }
-            group.addTask { await timeoutTask.value }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
             let first = await group.next() ?? false
-            group.cancelAll()
+            group.cancelAll()  // cancels the losing task directly (no separate Task objects to leak)
             return first
         }
-
-        refreshTask.cancel()
-        timeoutTask.cancel()
-        return result
     }
 
     // MARK: - Content Endpoints

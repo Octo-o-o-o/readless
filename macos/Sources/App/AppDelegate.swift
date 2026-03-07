@@ -84,17 +84,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sourceType = "text"
             }
 
-            // Read text-based files directly; encode binary types as base64.
-            let body: String
-            if ["pdf", "png", "jpg", "jpeg"].contains(ext) {
-                guard let data = FileManager.default.contents(atPath: path) else { continue }
-                body = data.base64EncodedString()
-            } else {
-                body = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-                if body.isEmpty { continue }
-            }
+            // Read file data off the main thread to avoid UI freezes.
+            Task.detached(priority: .utility) {
+                let body: String
+                if ["pdf", "png", "jpg", "jpeg"].contains(ext) {
+                    guard let data = FileManager.default.contents(atPath: path) else { return }
+                    body = data.base64EncodedString()
+                } else {
+                    body = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+                    if body.isEmpty { return }
+                }
 
-            Task { @MainActor in
                 await ContentManager.shared.importSilently(
                     text: body, appName: "Folder Watch: \(fileName)", bundleID: nil,
                     sourceType: sourceType

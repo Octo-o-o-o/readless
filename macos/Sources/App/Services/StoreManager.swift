@@ -269,41 +269,29 @@ final class StoreManager {
         // Cancel existing listener
         transactionListener?.cancel()
 
-        // StoreKit 2 API: listen to transaction updates stream
-        transactionListener = Task {
+        // StoreKit 2 API: listen to transaction updates stream.
+        // Run off MainActor — only hop to main for UI state updates.
+        transactionListener = Task.detached { [weak self] in
             print("[StoreManager] Transaction listener started")
 
             for await result in Transaction.updates {
-                await MainActor.run {
+                guard !Task.isCancelled, let self else { return }
+                do {
+                    let transaction = try await self.checkVerified(result)
+                    print("[StoreManager] 🔔 Transaction update: \(transaction.id) for product: \(transaction.productID)")
+
                     do {
-                        let transaction = try StoreManager.shared.checkVerified(result)
-
-                        print("[StoreManager] 🔔 Transaction update: \(transaction.id) for product: \(transaction.productID)")
-
-                        // Verify with backend (pass verification result for JWS)
-                        Task {
-                            do {
-                                try await StoreManager.shared.verifyReceipt(verificationResult: result)
-
-                                // Finish the transaction
-                                await transaction.finish()
-
-                                // Update purchased products
-                                await StoreManager.shared.updatePurchasedProducts()
-
-                                // Refresh user info
-                                try? await AuthService.shared.refreshAccessToken()
-
-                                print("[StoreManager] ✅ Transaction update processed")
-
-                            } catch {
-                                print("[StoreManager] ❌ Failed to process transaction update: \(error)")
-                            }
-                        }
-
+                        try await self.verifyReceipt(verificationResult: result)
+                        await transaction.finish()
+                        await self.updatePurchasedProducts()
+                        try? await AuthService.shared.refreshAccessToken()
+                        print("[StoreManager] ✅ Transaction update processed")
                     } catch {
-                        print("[StoreManager] ❌ Failed to verify transaction: \(error)")
+                        await transaction.finish()
+                        print("[StoreManager] ❌ Failed to process transaction update: \(error)")
                     }
+                } catch {
+                    print("[StoreManager] ❌ Failed to verify transaction: \(error)")
                 }
             }
         }

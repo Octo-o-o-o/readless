@@ -14,11 +14,11 @@ final class ReaderViewModel {
     // Expansion state — both are directly observed by SwiftUI
     var expandedDetails: [Int: String] = [:]       // Index → detail text (only for expanded items)
     var loadingExpandIndices: Set<Int> = []         // Per-point loading state
-    var expandStateVersion: Int = 0                 // Force redraw signal for expansion UI
 
+    var isLoadingContent: Bool = false
     var focusedIndex: Int = 0
-    var showSourcePanel: Bool = false
-    var sourceAnchorID: String?
+    var showOriginalPanel: Bool = false
+    var sourceAnchors: [String] = []
     var followUpAnswer: String?
     var isLoadingFollowUp: Bool = false
 
@@ -32,6 +32,7 @@ final class ReaderViewModel {
 
     // Private cache of ALL fetched details (persists across collapse/expand)
     private var cachedDetails: [Int: String] = [:]
+    private var activeContentID: String?
 
     init(api: APIClient? = nil, database: LocalDatabase? = nil) {
         self.api = api ?? .shared
@@ -51,49 +52,74 @@ final class ReaderViewModel {
     // MARK: - Data Loading
 
     func loadContent(contentID: String) async {
+        activeContentID = contentID
+
         // Reset state for new content
         expandedDetails = [:]
         cachedDetails = [:]
         focusedIndex = 0
         followUpAnswer = nil
         loadingExpandIndices = []
+        showOriginalPanel = false
+        sourceAnchors = []
+        paragraphs = []
 
-        // Reset translation state
-        translatedContent = nil
+        // Reset translation state — set showingTranslation FIRST to avoid
+        // a frame where displayedContent is nil (showingTranslation=true,
+        // translatedContent=nil).
         showingTranslation = false
+        translatedContent = nil
         isLoadingTranslation = false
+
+        // Show loading state only when we have no content to display
+        let hadContent = content != nil
+        isLoadingContent = !hadContent
 
         // 1. Load from local cache first (instant display)
         if let cached = try? await database.fetchContent(id: contentID) {
+            guard activeContentID == contentID, !Task.isCancelled else { return }
             content = cached
+            isLoadingContent = false
             cachedDetails = (try? await database.fetchExpandedDetails(contentId: contentID)) ?? [:]
         }
 
         // 2. Fetch from API in background to get fresh data
         do {
             let fresh = try await api.fetchContent(id: contentID)
+            guard activeContentID == contentID, !Task.isCancelled else { return }
             content = fresh
+            isLoadingContent = false
             // Update local cache
             let userId = AuthService.shared.currentUser?.id.uuidString
             try? await database.saveContent(fresh, userId: userId)
+        } catch is CancellationError {
+            // Ignore canceled work when user quickly switches content.
         } catch {
             // Keep cached content if API fails
+            guard activeContentID == contentID else { return }
+            isLoadingContent = false
         }
     }
 
     func loadParagraphs(contentID: String) async {
+        guard activeContentID == contentID else { return }
+
         // 1. Load from local cache first
         if let cached = try? await database.fetchParagraphs(contentId: contentID), !cached.isEmpty {
+            guard activeContentID == contentID, !Task.isCancelled else { return }
             paragraphs = cached
         }
 
         // 2. Fetch from API for fresh data
         do {
             let results = try await api.getParagraphs(contentID: contentID)
+            guard activeContentID == contentID, !Task.isCancelled else { return }
             let fresh = results.map { (anchorID: $0.anchorID, text: $0.text) }
             paragraphs = fresh
             // Save to local cache
             try? await database.saveParagraphs(fresh, contentId: contentID)
+        } catch is CancellationError {
+            // Ignore canceled work when user quickly switches content.
         } catch {
             // Keep cached paragraphs if API fails
         }
@@ -134,7 +160,6 @@ final class ReaderViewModel {
                 updated.removeValue(forKey: index)
             }
             expandedDetails = updated
-            expandStateVersion &+= 1
         }
 
         func setLoading(_ isLoading: Bool) {
@@ -145,7 +170,6 @@ final class ReaderViewModel {
                 updated.remove(index)
             }
             loadingExpandIndices = updated
-            expandStateVersion &+= 1
         }
 
         // Toggle: if already expanded, collapse
@@ -191,8 +215,18 @@ final class ReaderViewModel {
     // MARK: - Source Tracing
 
     func traceSource(anchors: [String]) {
-        sourceAnchorID = anchors.first
-        showSourcePanel = true
+        sourceAnchors = anchors
+        showOriginalPanel = true
+    }
+
+    func toggleOriginalPanel() {
+        if showOriginalPanel {
+            showOriginalPanel = false
+            sourceAnchors = []
+        } else {
+            sourceAnchors = []
+            showOriginalPanel = true
+        }
     }
 
     // MARK: - Follow-Up Q&A (L3)
@@ -213,6 +247,8 @@ final class ReaderViewModel {
 
     func loadTranslation(targetLanguage: String) async {
         guard let content else { return }
+        let translatingContentID = content.id
+        guard activeContentID == translatingContentID else { return }
         guard let sourceLanguage = content.sourceLanguage else { return }
 
         // Smart translation: skip if same language
@@ -222,16 +258,25 @@ final class ReaderViewModel {
         }
 
         isLoadingTranslation = true
-        defer { isLoadingTranslation = false }
+        defer {
+            if activeContentID == translatingContentID {
+                isLoadingTranslation = false
+            }
+        }
 
         do {
-            translatedContent = try await api.translateContent(
-                contentID: content.id,
+            let translated = try await api.translateContent(
+                contentID: translatingContentID,
                 targetLanguage: targetLanguage
             )
+            guard activeContentID == translatingContentID, !Task.isCancelled else { return }
+            translatedContent = translated
             showingTranslation = true
+        } catch is CancellationError {
+            // Ignore canceled work when user quickly switches content.
         } catch {
             // Translation failed, keep showing original
+            guard activeContentID == translatingContentID else { return }
             showingTranslation = false
         }
     }

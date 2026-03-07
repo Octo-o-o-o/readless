@@ -8,6 +8,7 @@ class OutlinePoint(BaseModel):
 
     point: str
     anchors: list[str]
+    detail: str | None = None
 
 
 class ContentSummary(BaseModel):

@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Outline Point
 
-public struct OutlinePoint: Identifiable, Codable, Sendable {
+public struct OutlinePoint: Identifiable, Codable, Sendable, Equatable {
     public let id: String
     public var point: String
     public var anchors: [String]

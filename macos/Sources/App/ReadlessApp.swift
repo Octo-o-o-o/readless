@@ -87,10 +87,6 @@ struct ContentView: View {
                 .padding(.bottom, 24)
         }
         .task {
-            // Wait for AuthService to complete initial token sync
-            while !authService.isInitialized {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
             await contentManager.loadContents()
         }
         .onChange(of: selectedSection) { oldValue, newValue in
@@ -132,6 +128,7 @@ struct ContentView: View {
     private var detailView: some View {
         if let contentID = selectedContentID {
             ReaderView(contentID: contentID)
+                .id(contentID)
         } else {
             ContentUnavailableView(
                 "No Content Selected",
@@ -205,7 +202,6 @@ struct SidebarView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(AuthService.self) private var authService
     @Environment(TagManager.self) private var tagManager
-    @State private var contentManager = ContentManager.shared
     @State private var showAuthSheet = false
     @State private var showSignOutConfirm = false
 
@@ -238,7 +234,7 @@ struct SidebarView: View {
                                 selection = nil
                                 tagManager.selectTag(tag.id)
                                 Task {
-                                    await contentManager.filterByTag(tagId: tag.id)
+                                    await ContentManager.shared.filterByTag(tagId: tag.id)
                                 }
                             } label: {
                                 HStack {
@@ -256,7 +252,7 @@ struct SidebarView: View {
                                         try? await tagManager.deleteTag(id: tag.id)
                                         // Reload content if this tag was selected
                                         if tagManager.selectedTagId == tag.id {
-                                            await contentManager.loadContents()
+                                            await ContentManager.shared.loadContents()
                                         }
                                     }
                                 }
@@ -267,10 +263,6 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .task {
-                // Wait for AuthService to complete initial token sync
-                while !authService.isInitialized {
-                    try? await Task.sleep(for: .milliseconds(50))
-                }
                 await tagManager.loadUserTags()
             }
 
@@ -506,11 +498,8 @@ private struct MainWindowSizer: NSViewRepresentable {
             guard let window, !window.isSheet else { return }
             DispatchQueue.main.async { [weak window] in
                 guard let window else { return }
-                // Only expand if the window is currently login-sized
-                let current = window.frame.size
-                if current.width < 700 || current.height < 600 {
-                    window.setContentSize(NSSize(width: 900, height: 650))
-                    window.center()
+                if !window.isZoomed {
+                    window.zoom(nil)
                 }
             }
         }

@@ -2,18 +2,26 @@ import Foundation
 import Observation
 import Core
 
+public enum CommandBarImportState: Equatable {
+    case idle
+    case importing
+    case success
+}
+
 @Observable
 public final class AICoordinator {
     // Command Bar State
     public var isCommandBarVisible = false
     public var commandQuery = ""
     public var commandResults: [CommandResult] = []
-    public var selectedCommandIndex = 0
 
     // Selection and UI state
     public var selectedResultIndex: Int = 0
     public var isLoading: Bool = false
     public var errorMessage: String?
+
+    // Import lifecycle state (for Command Bar)
+    public var commandBarImportState: CommandBarImportState = .idle
 
     // Preview panel state (for Phase 2)
     public var showPreviewPanel: Bool = false
@@ -42,6 +50,7 @@ public final class AICoordinator {
     @MainActor
     public func hideCommandBar() {
         isCommandBarVisible = false
+        commandBarImportState = .idle
     }
 
     @MainActor
@@ -60,7 +69,11 @@ public final class AICoordinator {
         guard selectedResultIndex < commandResults.count else { return }
         let result = commandResults[selectedResultIndex]
         await result.action()
-        hideCommandBar()
+        // Don't auto-close if an import is active or an error is being shown —
+        // the import flow handles its own dismissal via success timer
+        if commandBarImportState == .idle && errorMessage == nil {
+            hideCommandBar()
+        }
     }
 
     @MainActor
@@ -83,12 +96,16 @@ public final class AICoordinator {
 
 // MARK: - Models
 
-public struct CommandResult: Identifiable {
+public struct CommandResult: Identifiable, Equatable {
     public let id = UUID()
     public let title: String
     public let subtitle: String?
     public let icon: String
     public let action: () async -> Void
+
+    public static func == (lhs: CommandResult, rhs: CommandResult) -> Bool {
+        lhs.id == rhs.id && lhs.title == rhs.title && lhs.subtitle == rhs.subtitle
+    }
 
     public init(title: String, subtitle: String? = nil, icon: String, action: @escaping () async -> Void) {
         self.title = title

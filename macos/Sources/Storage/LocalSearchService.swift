@@ -18,10 +18,9 @@ public final class LocalSearchService {
     /// If userId is provided, only searches content for that user
     public func search(query: String, limit: Int = 20, userId: String? = nil) async throws -> SearchResult {
         let results = try await database.dbQueue.read { db -> [SearchResultItem] in
-            // FTS5 query format
             let ftsQuery = prepareFTSQuery(query)
 
-            // Search using FTS5 with ranking
+            // Include snippet() directly in the query to avoid N+1
             var sql = """
                 SELECT
                     c.id,
@@ -29,13 +28,13 @@ public final class LocalSearchService {
                     c.l0_summary,
                     c.created_at,
                     c.source_url,
-                    bm25(contents_fts) as rank
+                    bm25(contents_fts) as rank,
+                    snippet(contents_fts, 1, '<mark>', '</mark>', '...', 64) as snippet
                 FROM contents c
                 JOIN contents_fts ON contents_fts.rowid = c.rowid
                 WHERE contents_fts MATCH ?
             """
 
-            // Add user filter if provided
             if userId != nil {
                 sql += " AND c.user_id = ?"
             }
@@ -61,13 +60,7 @@ public final class LocalSearchService {
                 let summary = row["l0_summary"] as? String
                 let sourceURL = row["source_url"] as? String
                 let createdAt = row["created_at"] as? Date
-
-                // Generate snippet (highlight matching text)
-                let snippet = try? String.fetchOne(
-                    db,
-                    sql: "SELECT snippet(contents_fts, 1, '<mark>', '</mark>', '...', 64) FROM contents_fts WHERE rowid = ?",
-                    arguments: [row["rowid"]]
-                ) ?? summary ?? ""
+                let snippet = row["snippet"] as? String
 
                 return SearchResultItem(
                     id: id,
@@ -75,7 +68,7 @@ public final class LocalSearchService {
                     snippet: snippet ?? summary ?? "",
                     sourceURL: sourceURL,
                     createdAt: createdAt ?? Date(),
-                    relevanceScore: 0.0  // FTS5 BM25 rank is negative
+                    relevanceScore: 0.0
                 )
             }
         }
@@ -128,22 +121,21 @@ public final class LocalSearchService {
                 try db.execute(sql: sql, arguments: StatementArguments(arguments))
             }
 
-            // Save paragraphs for complete local data
-            for para in paragraphs {
+            // Save paragraphs: delete-then-insert to avoid unbounded duplicates
+            // (UUID().uuidString as id would never trigger ON CONFLICT)
+            try db.execute(sql: "DELETE FROM paragraphs WHERE content_id = ?", arguments: [content.id])
+            for (index, para) in paragraphs.enumerated() {
                 try db.execute(
                     sql: """
                         INSERT INTO paragraphs (id, content_id, anchor_id, text, position)
                         VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET
-                            text = excluded.text,
-                            position = excluded.position
                     """,
                     arguments: [
                         UUID().uuidString,
                         content.id,
                         para.anchorID,
                         para.text,
-                        0  // Position will be set properly if available
+                        index
                     ]
                 )
             }

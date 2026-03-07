@@ -5,7 +5,7 @@ import Core
 /// LocalDatabase provides CRUD operations for Content with GRDB.
 /// Supports local persistence, sync tracking, and bi-directional sync with backend.
 public final class LocalDatabase {
-    internal let dbQueue: DatabaseQueue  // Changed to internal for CacheManager access
+    public let dbQueue: DatabaseQueue  // Public for shared access by CacheManager and HistoryManager
 
     /// Singleton instance using default production database path.
     public static let shared: LocalDatabase = {
@@ -196,6 +196,20 @@ public final class LocalDatabase {
                 mutableContent.userId = userId
             }
             try ContentRecord(from: mutableContent).save(db)
+        }
+    }
+
+    /// Save multiple content records in a single transaction for better performance.
+    public func saveContents(_ contents: [Content], userId: String? = nil) async throws {
+        guard !contents.isEmpty else { return }
+        try await dbQueue.write { db in
+            for content in contents {
+                var mutableContent = content
+                if let userId = userId {
+                    mutableContent.userId = userId
+                }
+                try ContentRecord(from: mutableContent).save(db)
+            }
         }
     }
 

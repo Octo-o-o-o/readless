@@ -104,14 +104,16 @@ JSON only.""",
         result = await db.execute(text(sql), params)
         rows = result.fetchall()
 
-        # Fallback: if FTS returns nothing, try tag/keyword match
+        # Fallback: if FTS returns nothing, try keyword match or tag join
         if not rows and terms:
             tag_sql = """
-                SELECT * FROM contents
-                WHERE user_id = :user_id
-                  AND (tags && CAST(:terms AS text[])
-                    OR keywords && CAST(:terms AS text[]))
-                ORDER BY created_at DESC LIMIT 10
+                SELECT DISTINCT c.* FROM contents c
+                LEFT JOIN content_tags ct ON c.id = ct.content_id
+                LEFT JOIN user_tags ut ON ct.tag_id = ut.id
+                WHERE c.user_id = :user_id
+                  AND (c.keywords && CAST(:terms AS text[])
+                    OR ut.tag_name = ANY(:terms))
+                ORDER BY c.created_at DESC LIMIT 10
             """
             result = await db.execute(
                 text(tag_sql), {"user_id": user_id, "terms": terms}
@@ -126,7 +128,7 @@ JSON only.""",
             return candidates
 
         summaries = "\n".join(
-            f"[{i}] {c.title} — {c.l0_summary} (tags: {c.tags})"
+            f"[{i}] {c.title} — {c.l0_summary}"
             for i, c in enumerate(candidates)
         )
         message = await self.client.chat.completions.create(

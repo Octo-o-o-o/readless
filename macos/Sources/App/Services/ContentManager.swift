@@ -95,6 +95,20 @@ final class ContentManager {
         }
     }
 
+    /// Import content quietly — no capsule, no toast. For use from Command Bar.
+    func importQuietly(text: String, appName: String?, bundleID: String?) async throws -> Content {
+        let sourceType = text.hasPrefix("http") ? "url" : "text"
+        let content = try await api.createContent(
+            sourceType: sourceType,
+            body: text,
+            appName: appName,
+            bundleID: bundleID
+        )
+        contents.insert(content, at: 0)
+        try await database.saveContent(content, userId: currentUserId)
+        return content
+    }
+
     /// Cancel any in-progress import and dismiss the capsule.
     func cancelProcessing() {
         capsuleState = .dismissed
@@ -111,31 +125,33 @@ final class ContentManager {
         defer { isLoading = false }
 
         let userId = currentUserId
-        if lastLoadedUserId != userId {
-            contents = []
-            lastLoadedUserId = userId
-        }
 
         // Claim legacy cache rows (user_id was added in v4; older rows are NULL).
         if let userId {
             try? await database.claimLegacyCache(userId: userId)
         }
 
-        // 1) Preload from local cache (instant list)
-        do {
-            let cached = try await database.fetchContents(userId: userId)
+        // 1) Preload from local cache — merge with user-switch clear into one assignment
+        if lastLoadedUserId != userId {
+            lastLoadedUserId = userId
+            let cached = (try? await database.fetchContents(userId: userId)) ?? []
+            contents = cached  // single render: either cached data or empty
             if !cached.isEmpty {
+                print("[ContentManager] Preloaded \(cached.count) items from local cache")
+            }
+        } else {
+            if let cached = try? await database.fetchContents(userId: userId), !cached.isEmpty {
                 contents = cached
                 print("[ContentManager] Preloaded \(cached.count) items from local cache")
             }
-        } catch {
-            print("[ContentManager] Failed to preload cache: \(error)")
         }
 
-        // 2) Refresh from backend
+        // 2) Refresh from backend — only assign if data actually changed
         do {
             let fresh = try await api.listContents()
-            contents = fresh
+            if fresh != contents {
+                contents = fresh
+            }
             error = nil
             await cacheContents(fresh)
         } catch {
@@ -182,12 +198,10 @@ final class ContentManager {
         }
     }
 
-    /// Save an array of content items to local cache.
+    /// Save an array of content items to local cache in a single transaction.
     private func cacheContents(_ items: [Content]) async {
         let userId = currentUserId
-        for content in items {
-            try? await database.saveContent(content, userId: userId)
-        }
+        try? await database.saveContents(items, userId: userId)
     }
 
     // MARK: - Notifications

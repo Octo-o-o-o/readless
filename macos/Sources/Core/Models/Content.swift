@@ -24,7 +24,12 @@ public enum ContentStatus: String, Codable, Sendable, CaseIterable {
 
 // MARK: - Content
 
-public struct Content: Identifiable, Codable, Sendable {
+public struct Content: Identifiable, Codable, Sendable, Equatable {
+    // Custom Equatable: skip fullText (can be large), compare id + updatedAt
+    public static func == (lhs: Content, rhs: Content) -> Bool {
+        lhs.id == rhs.id && lhs.updatedAt == rhs.updatedAt
+    }
+
     public let id: String
     public var title: String
     public var sourceURL: String?
