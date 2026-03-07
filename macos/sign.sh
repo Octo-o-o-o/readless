@@ -7,10 +7,14 @@
 set -e
 
 IDENTITY="Apple Development: Yixiao Wang (QQG4GHX8SN)"
-PROFILE="/Users/wangyixiao/Library/Developer/Xcode/UserData/Provisioning Profiles/5cc4ebeb-9705-4562-aa37-40dbd24fc1c8.provisionprofile"
+PROFILE="/Users/wangyixiao/Library/Developer/Xcode/UserData/Provisioning Profiles/9d0f5a2a-ad7b-4756-8697-a1e5d347a264.provisionprofile"
 ENTITLEMENTS="Sources/App/Resources/App.entitlements"
 BINARY=".build/arm64-apple-macosx/debug/App"
 BUNDLE="Readless.app"
+# Default local test builds to production backend.
+# Override for local backend testing:
+#   READLESS_API_BASE_URL=http://localhost:8000 bash sign.sh
+BACKEND_URL="${READLESS_API_BASE_URL:-https://readless.cc}"
 
 echo "🔨 Building..."
 swift build
@@ -41,8 +45,14 @@ cp "$PROFILE" "$BUNDLE/Contents/embedded.provisionprofile"
 echo "  ✓ Provisioning profile embedded"
 
 # Strip any quarantine / extended attributes that block Gatekeeper launch
+chmod -R u+w "$BUNDLE"
 xattr -cr "$BUNDLE"
 echo "  ✓ Quarantine attributes cleared"
+
+echo ""
+echo "🌐 Configuring backend..."
+defaults write com.readless.app apiBaseURL "$BACKEND_URL"
+echo "  ✓ apiBaseURL = $BACKEND_URL"
 
 echo ""
 echo "✍️  Signing..."

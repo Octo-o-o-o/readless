@@ -2,7 +2,7 @@
 
 # Readless macOS App - Backend Configuration Script
 # Usage: ./configure-backend.sh [URL]
-# Example: ./configure-backend.sh https://api.readless.cc
+# Example: ./configure-backend.sh https://readless.cc
 
 set -e
 
@@ -14,16 +14,16 @@ if [ -z "$1" ]; then
     echo "Usage: ./configure-backend.sh <backend-url>"
     echo ""
     echo "Examples:"
-    echo "  ./configure-backend.sh https://api.readless.cc"
+    echo "  ./configure-backend.sh https://readless.cc"
     echo "  ./configure-backend.sh http://localhost:8000"
     echo ""
 
     # Show current configuration
-    CURRENT=$(defaults read com.readless.app apiBaseURL 2>/dev/null || echo "http://localhost:8000 (default)")
+    CURRENT=$(defaults read com.readless.app apiBaseURL 2>/dev/null || echo "https://readless.cc (default)")
     echo "Current backend URL: $CURRENT"
     echo ""
 
-    echo "To reset to default (localhost):"
+    echo "To reset to default (production):"
     echo "  defaults delete com.readless.app apiBaseURL"
     echo ""
     exit 1

@@ -57,17 +57,23 @@ public final class APIClient: @unchecked Sendable {
     /// Deduplication guard: only one token refresh runs at a time.
     private var activeRefreshTask: Task<Bool, Never>?
 
-    /// Get the configured API base URL from UserDefaults or use default localhost
+    /// Get configured API base URL from UserDefaults or use production by default.
     private static func getConfiguredBaseURL() -> URL {
-        // Try to read from UserDefaults first
-        if let urlString = UserDefaults.standard.string(forKey: "apiBaseURL"),
+        // Read configured URL from app defaults first.
+        // Also check the explicit domain to support builds launched outside the
+        // standard app defaults search path without using suiteName.
+        if let urlString = (
+            UserDefaults.standard.string(forKey: "apiBaseURL")
+                ?? UserDefaults.standard
+                    .persistentDomain(forName: "com.readless.app")?["apiBaseURL"] as? String
+        ),
            let url = URL(string: urlString) {
             print("[Readless] Using configured API base URL: \(urlString)")
             return url
         }
 
-        // Fallback to localhost for development
-        let defaultURL = URL(string: "http://localhost:8000")!
+        // Fallback to production backend.
+        let defaultURL = URL(string: "https://readless.cc")!
         print("[Readless] Using default API base URL: \(defaultURL.absoluteString)")
         return defaultURL
     }

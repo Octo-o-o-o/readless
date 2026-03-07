@@ -93,9 +93,9 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var mainContentPanel: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let baseContent = viewModel.content {
-                // Language toggle toolbar (only show if translation available or loading)
+        if let baseContent = viewModel.content {
+            // Language toggle toolbar (pinned at top, not scrollable)
+            VStack(spacing: 0) {
                 if viewModel.hasTranslation || viewModel.isLoadingTranslation {
                     languageToolbar
                     Divider()
@@ -106,123 +106,136 @@ struct ReaderView: View {
                 // when showingTranslation is briefly true but translatedContent is nil
                 let content = viewModel.displayedContent ?? baseContent
 
-                // L0 header: title + one-line summary + metadata
-                VStack(alignment: .leading, spacing: Theme.space12) {
-                    // Source type & timestamp row
-                    if let originalContent = viewModel.content {
-                        HStack(spacing: Theme.space8) {
-                            HStack(spacing: Theme.space4) {
-                                Image(systemName: Theme.sourceTypeIcon(originalContent.sourceType))
-                                    .font(.system(size: 10, weight: .medium))
-                                Text(originalContent.sourceType.rawValue.uppercased())
-                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                    .tracking(0.5)
+                // Single ScrollView for L0 header + L1 outline
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            // L0 header: title + one-line summary + metadata
+                            VStack(alignment: .leading, spacing: Theme.space12) {
+                                // Source type & timestamp row
+                                if let originalContent = viewModel.content {
+                                    HStack(spacing: Theme.space8) {
+                                        HStack(spacing: Theme.space4) {
+                                            Image(systemName: Theme.sourceTypeIcon(originalContent.sourceType))
+                                                .font(.system(size: 10, weight: .medium))
+                                            Text(originalContent.sourceType.rawValue.uppercased())
+                                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                                .tracking(0.5)
+                                        }
+                                        .foregroundStyle(Theme.sourceTypeColor(originalContent.sourceType))
+                                        .padding(.horizontal, Theme.space8)
+                                        .padding(.vertical, Theme.space4)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                                                .fill(Theme.sourceTypeColor(originalContent.sourceType).opacity(0.12))
+                                        )
+
+                                        Text(originalContent.createdAt, style: .relative)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(Theme.textTertiary)
+
+                                        Spacer()
+                                    }
+                                }
+
+                                // Title + View Original button
+                                HStack(alignment: .top, spacing: Theme.space12) {
+                                    Text(content.title)
+                                        .font(.system(size: 24, weight: .bold))
+                                        .lineSpacing(Theme.titleLineSpacing)
+                                        .fixedSize(horizontal: false, vertical: true)
+
+                                    Spacer(minLength: 0)
+
+                                    if let originalContent = viewModel.content {
+                                        viewOriginalButton(for: originalContent)
+                                    }
+                                }
+
+                                // L0 summary
+                                if let summary = content.l0Summary {
+                                    Text(summary)
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundStyle(.secondary.opacity(0.85))
+                                        .lineSpacing(4)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+
+                                // Tags section
+                                if let originalContent = viewModel.content {
+                                    TagsView(
+                                        tags: originalContent.tags,
+                                        availableTags: tagManager.userTags.map { $0.tagName },
+                                        onAdd: { tagName in
+                                            await addTag(tagName)
+                                        },
+                                        onRemove: { tagName in
+                                            await removeTag(tagName)
+                                        }
+                                    )
+                                    .padding(.top, Theme.space4)
+                                }
                             }
-                            .foregroundStyle(Theme.sourceTypeColor(originalContent.sourceType))
-                            .padding(.horizontal, Theme.space8)
-                            .padding(.vertical, Theme.space4)
-                            .background(
-                                RoundedRectangle(cornerRadius: Theme.radiusSmall)
-                                    .fill(Theme.sourceTypeColor(originalContent.sourceType).opacity(0.12))
-                            )
+                            .padding(.horizontal, Theme.space24)
+                            .padding(.top, Theme.space24)
+                            .padding(.bottom, Theme.space16)
 
-                            Text(originalContent.createdAt, style: .relative)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Theme.textTertiary)
+                            // Subtle separator
+                            Rectangle()
+                                .fill(Theme.borderSubtle)
+                                .frame(height: 1)
+                                .padding(.horizontal, Theme.space24)
 
-                            Spacer()
-                        }
-                    }
-
-                    // Title + View Original button
-                    HStack(alignment: .top, spacing: Theme.space12) {
-                        Text(content.title)
-                            .font(.system(size: 24, weight: .bold))
-                            .lineSpacing(Theme.titleLineSpacing)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Spacer(minLength: 0)
-
-                        if let originalContent = viewModel.content {
-                            viewOriginalButton(for: originalContent)
-                        }
-                    }
-
-                    // L0 summary
-                    if let summary = content.l0Summary {
-                        Text(summary)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(.secondary.opacity(0.85))
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    // Tags section
-                    if let originalContent = viewModel.content {
-                        TagsView(
-                            tags: originalContent.tags,
-                            availableTags: tagManager.userTags.map { $0.tagName },
-                            onAdd: { tagName in
-                                await addTag(tagName)
-                            },
-                            onRemove: { tagName in
-                                await removeTag(tagName)
+                            // L1 outline
+                            if let outline = content.l1Outline {
+                                OutlineView(
+                                    points: outline,
+                                    viewModel: viewModel,
+                                    onExpand: { index in
+                                        Task { await viewModel.expandPoint(at: index) }
+                                    },
+                                    onTrace: { anchors in
+                                        viewModel.traceSource(anchors: anchors)
+                                    }
+                                )
+                            } else {
+                                ContentUnavailableView(
+                                    "No Outline Available",
+                                    systemImage: "doc.text.magnifyingglass",
+                                    description: Text("This content has not been summarized yet.")
+                                )
                             }
-                        )
-                        .padding(.top, Theme.space4)
+                        }
+                    }
+                    .onChange(of: viewModel.focusedIndex) { _, newIndex in
+                        guard let outline = content.l1Outline,
+                              outline.indices.contains(newIndex) else { return }
+                        withAnimation(Theme.snapAnimation) {
+                            proxy.scrollTo(newIndex, anchor: .center)
+                        }
                     }
                 }
-                .padding(.horizontal, Theme.space24)
-                .padding(.top, Theme.space24)
-                .padding(.bottom, Theme.space16)
-
-                // Subtle separator
-                Rectangle()
-                    .fill(Theme.borderSubtle)
-                    .frame(height: 1)
-                    .padding(.horizontal, Theme.space24)
-
-                // L1 outline
-                if let outline = content.l1Outline {
-                    OutlineView(
-                        points: outline,
-                        viewModel: viewModel,
-                        onExpand: { index in
-                            Task { await viewModel.expandPoint(at: index) }
-                        },
-                        onTrace: { anchors in
-                            viewModel.traceSource(anchors: anchors)
-                        }
-                    )
-                    .id(content.id)
-                } else {
-                    ContentUnavailableView(
-                        "No Outline Available",
-                        systemImage: "doc.text.magnifyingglass",
-                        description: Text("This content has not been summarized yet.")
-                    )
-                }
-            } else if viewModel.isLoadingContent {
-                // Loading state
-                VStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.large)
-                    Text("Loading...")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, Theme.space8)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                // Empty state
-                ContentUnavailableView(
-                    "No Content Selected",
-                    systemImage: "doc.text",
-                    description: Text("Select a content item to view its summary.")
-                )
             }
+        } else if viewModel.isLoadingContent {
+            // Loading state
+            VStack {
+                Spacer()
+                ProgressView()
+                    .controlSize(.large)
+                Text("Loading...")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, Theme.space8)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            // Empty state
+            ContentUnavailableView(
+                "No Content Selected",
+                systemImage: "doc.text",
+                description: Text("Select a content item to view its summary.")
+            )
         }
     }
 

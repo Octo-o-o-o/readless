@@ -11,36 +11,22 @@ struct OutlineView: View {
     let onTrace: ([String]) -> Void
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
-                        OutlinePointRow(
-                            point: point,
-                            index: index,
-                            isFocused: index == viewModel.focusedIndex,
-                            expandedDetail: viewModel.expandedDetails[index],
-                            isLoading: viewModel.loadingExpandIndices.contains(index),
-                            onExpand: { onExpand(index) },
-                            onTrace: { anchors in onTrace(anchors) }
-                        )
-                        .id(index)
-                    }
-                }
-                .padding(.horizontal, Theme.space20)
-                .padding(.vertical, Theme.space16)
-            }
-            .onChange(of: viewModel.focusedIndex) { _, newIndex in
-                guard points.indices.contains(newIndex) else { return }
-                withAnimation(Theme.snapAnimation) {
-                    proxy.scrollTo(newIndex, anchor: .center)
-                }
-            }
-            .onChange(of: points.map(\.id)) { _, _ in
-                guard !points.isEmpty else { return }
-                proxy.scrollTo(0, anchor: .top)
+        LazyVStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
+                OutlinePointRow(
+                    point: point,
+                    index: index,
+                    isFocused: index == viewModel.focusedIndex,
+                    expandedDetail: viewModel.expandedDetails[index],
+                    isLoading: viewModel.loadingExpandIndices.contains(index),
+                    onExpand: { onExpand(index) },
+                    onTrace: { anchors in onTrace(anchors) }
+                )
+                .id(index)
             }
         }
+        .padding(.horizontal, Theme.space20)
+        .padding(.vertical, Theme.space16)
     }
 }
 
