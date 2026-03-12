@@ -18,8 +18,10 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
+from app.auth_utils import create_refresh_token
 from app.models.refresh_token import EmailLoginCode, RefreshToken
 from app.models.user import User
+from app.services.auth_service import _hash_refresh_token
 
 # ==================== Registration Tests ====================
 
@@ -163,7 +165,8 @@ async def test_complete_login_flow(test_client, auth_db_session):
     )
     refresh_token = result.scalar_one_or_none()
     assert refresh_token is not None
-    assert refresh_token.token == data["refresh_token"]
+    assert refresh_token.token != data["refresh_token"]
+    assert refresh_token.token == _hash_refresh_token(data["refresh_token"])
 
 
 @pytest.mark.asyncio
@@ -288,7 +291,7 @@ async def test_email_code_login_invalid_code(test_client, mock_resend_email):
 
 @pytest.mark.asyncio
 async def test_token_refresh_flow(test_client):
-    """Test refresh token flow to get new access token."""
+    """Test refresh token flow rotates refresh tokens."""
     # Register and login
     await test_client.post(
         "/api/v1/auth/register",
@@ -312,6 +315,7 @@ async def test_token_refresh_flow(test_client):
         "/api/v1/auth/refresh",
         json={
             "refresh_token": refresh_token,
+            "rotate_refresh_token": True,
         },
     )
 
@@ -319,9 +323,63 @@ async def test_token_refresh_flow(test_client):
     data = response.json()
 
     assert "access_token" in data
+    assert "refresh_token" in data
     assert data["expires_in"] == 900
-    # Refresh token should still be valid (not rotated)
-    assert "refresh_token" not in data
+    assert data["refresh_token"] != refresh_token
+
+    old_token_response = await test_client.post(
+        "/api/v1/auth/refresh",
+        json={
+            "refresh_token": refresh_token,
+        },
+    )
+    assert old_token_response.status_code == 401
+
+    new_token_response = await test_client.post(
+        "/api/v1/auth/refresh",
+        json={
+            "refresh_token": data["refresh_token"],
+            "rotate_refresh_token": True,
+        },
+    )
+    assert new_token_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_token_refresh_remains_backward_compatible_without_rotation_flag(
+    test_client,
+):
+    """Test old clients can still refresh without rotating the refresh token."""
+    await test_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "refresh-compat@example.com",
+            "password": "SecurePass123!",
+        },
+    )
+
+    login_response = await test_client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "refresh-compat@example.com",
+            "password": "SecurePass123!",
+        },
+    )
+    refresh_token = login_response.json()["refresh_token"]
+
+    response = await test_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["refresh_token"] is None
+
+    old_token_response = await test_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert old_token_response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -340,7 +398,7 @@ async def test_refresh_with_invalid_token(test_client):
 
 @pytest.mark.asyncio
 async def test_refresh_updates_last_used(test_client, auth_db_session):
-    """Test refresh token updates last_used_at timestamp."""
+    """Test refresh rotates the stored token row and updates last_used_at."""
     # Register and login
     await test_client.post(
         "/api/v1/auth/register",
@@ -361,7 +419,9 @@ async def test_refresh_updates_last_used(test_client, auth_db_session):
 
     # Get initial last_used_at
     result = await auth_db_session.execute(
-        select(RefreshToken).where(RefreshToken.token == refresh_token_str)
+        select(RefreshToken).where(
+            RefreshToken.token == _hash_refresh_token(refresh_token_str)
+        )
     )
     token_before = result.scalar_one_or_none()
     initial_last_used = token_before.last_used_at
@@ -370,16 +430,99 @@ async def test_refresh_updates_last_used(test_client, auth_db_session):
     import asyncio
     await asyncio.sleep(0.1)
 
-    await test_client.post(
+    refresh_response = await test_client.post(
         "/api/v1/auth/refresh",
         json={
             "refresh_token": refresh_token_str,
+            "rotate_refresh_token": True,
+        },
+    )
+    rotated_refresh_token = refresh_response.json()["refresh_token"]
+
+    # Verify row updated in place
+    await auth_db_session.refresh(token_before)
+    assert token_before.last_used_at > initial_last_used
+    assert token_before.token == _hash_refresh_token(rotated_refresh_token)
+
+
+@pytest.mark.asyncio
+async def test_refresh_accepts_legacy_plaintext_token_records(auth_db_session):
+    """Test refresh remains compatible with legacy plaintext token rows."""
+    from datetime import timedelta
+
+    from app.services.auth_service import AuthService
+
+    user = User(
+        email="legacy-refresh@example.com",
+        password_hash="dummy-hash",
+        subscription_tier="trial",
+    )
+    auth_db_session.add(user)
+    await auth_db_session.commit()
+    await auth_db_session.refresh(user)
+
+    raw_refresh_token = create_refresh_token(str(user.id))
+    token_record = RefreshToken(
+        token=raw_refresh_token,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=30),
+        last_used_at=datetime.now(UTC),
+    )
+    auth_db_session.add(token_record)
+    await auth_db_session.commit()
+
+    access_token, rotated_refresh_token = await AuthService(
+        auth_db_session
+    ).refresh_access_token(
+        raw_refresh_token,
+        rotate_refresh_token=True,
+    )
+    assert len(access_token) > 0
+    assert rotated_refresh_token != raw_refresh_token
+
+    await auth_db_session.refresh(token_record)
+    assert token_record.token == _hash_refresh_token(rotated_refresh_token)
+
+
+def test_refresh_token_admin_hides_token_value():
+    """Test admin detail view does not expose refresh token storage values."""
+    from app.admin import RefreshTokenAdmin
+
+    assert RefreshToken.token not in RefreshTokenAdmin.column_details_list
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes_refresh_tokens(test_client):
+    """Test logout revokes existing refresh tokens for the current user."""
+    await test_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "logout@example.com",
+            "password": "SecurePass123!",
         },
     )
 
-    # Verify last_used_at updated
-    await auth_db_session.refresh(token_before)
-    assert token_before.last_used_at > initial_last_used
+    login_response = await test_client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "logout@example.com",
+            "password": "SecurePass123!",
+        },
+    )
+    access_token = login_response.json()["access_token"]
+    refresh_token = login_response.json()["refresh_token"]
+
+    logout_response = await test_client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert logout_response.status_code == 200
+
+    refresh_response = await test_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert refresh_response.status_code == 401
 
 
 # ==================== Apple Sign In Tests ====================
@@ -574,19 +717,34 @@ async def test_multiple_refresh_tokens_per_user(test_client, auth_db_session):
     # Verify both tokens work
     refresh1 = await test_client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": token1},
+        json={
+            "refresh_token": token1,
+            "rotate_refresh_token": True,
+        },
     )
     assert refresh1.status_code == 200
+    rotated_token1 = refresh1.json()["refresh_token"]
 
     refresh2 = await test_client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": token2},
+        json={
+            "refresh_token": token2,
+            "rotate_refresh_token": True,
+        },
     )
     assert refresh2.status_code == 200
+    rotated_token2 = refresh2.json()["refresh_token"]
 
-    # Verify both tokens exist in database
+    # Verify both rotated tokens exist in database
     result = await auth_db_session.execute(
-        select(RefreshToken).where(RefreshToken.token.in_([token1, token2]))
+        select(RefreshToken).where(
+            RefreshToken.token.in_(
+                [
+                    _hash_refresh_token(rotated_token1),
+                    _hash_refresh_token(rotated_token2),
+                ]
+            )
+        )
     )
     tokens = result.scalars().all()
     assert len(tokens) == 2

@@ -11,6 +11,7 @@ All tests use in-memory SQLite database and mock StoreKit verification.
 """
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -68,6 +69,44 @@ async def test_verify_receipt_basic_subscription(
 
 
 @pytest.mark.asyncio
+async def test_verify_receipt_rejects_mismatched_product_id(
+    test_client, mock_storekit_verify, auth_db_session
+):
+    """Test receipt verification rejects request/product mismatches."""
+    register_response = await test_client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "mismatch@example.com",
+            "password": "SecurePass123!",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = await test_client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "mismatch@example.com",
+            "password": "SecurePass123!",
+        },
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+
+    response = await test_client.post(
+        "/api/v1/subscription/verify-receipt",
+        json={
+            "verification_data": "mock-basic-receipt",
+            "transaction_id": "test-txn-123",
+            "product_id": "com.readless.pro.monthly",
+        },
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Receipt product does not match request"
+
+
+@pytest.mark.asyncio
 async def test_verify_receipt_pro_subscription(
     test_client, mock_storekit_verify, auth_db_session
 ):
@@ -94,7 +133,6 @@ async def test_verify_receipt_pro_subscription(
     result = await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-pro-receipt",
-        transaction_id="test-txn-pro",
     )
 
     # Verify response
@@ -136,7 +174,6 @@ async def test_verify_receipt_clears_trial(
     await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-basic-receipt",
-        transaction_id="test-txn-123",
     )
 
     # Verify trial cleared
@@ -168,7 +205,6 @@ async def test_verify_receipt_stores_receipt_data(
     await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt=receipt_data,
-        transaction_id="test-txn-123",
     )
 
     # Verify receipt stored
@@ -337,7 +373,6 @@ async def test_upgrade_basic_to_pro(test_client, mock_storekit_verify, auth_db_s
     result = await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-pro-receipt",
-        transaction_id="test-txn-pro",
     )
 
     # Verify upgrade
@@ -376,7 +411,6 @@ async def test_downgrade_not_immediate(
     result = await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-basic-receipt",
-        transaction_id="test-txn-basic",
     )
 
     # Current implementation updates immediately
@@ -419,7 +453,6 @@ async def test_complete_subscription_journey(
     basic_result = await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-basic-receipt",
-        transaction_id="test-txn-basic",
     )
 
     assert basic_result["subscription_tier"] == "basic"
@@ -436,7 +469,6 @@ async def test_complete_subscription_journey(
     pro_result = await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-pro-receipt",
-        transaction_id="test-txn-pro",
     )
 
     assert pro_result["subscription_tier"] == "pro"
@@ -492,7 +524,6 @@ async def test_subscription_activation_dates(
     await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-basic-receipt",
-        transaction_id="test-txn-123",
     )
 
     await auth_db_session.refresh(user)
@@ -531,7 +562,6 @@ async def test_receipt_verification_updates_transaction_id(
     await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-receipt-1",
-        transaction_id="txn-001",
     )
 
     await auth_db_session.refresh(user)
@@ -541,7 +571,6 @@ async def test_receipt_verification_updates_transaction_id(
     await service.verify_and_update_subscription(
         user_id=user_id,
         jws_receipt="mock-receipt-2",
-        transaction_id="txn-002",
     )
 
     await auth_db_session.refresh(user)
@@ -549,3 +578,261 @@ async def test_receipt_verification_updates_transaction_id(
     assert user.apple_original_transaction_id == "test-orig-txn-123"
     # Latest receipt should be updated
     assert user.apple_receipt_data == "mock-receipt-2"
+
+
+# ==================== Webhook Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_webhook_renews_subscription_by_original_transaction_id(
+    test_client, auth_db_session
+):
+    """Test webhook renewal updates an existing subscription record."""
+    user_id = uuid4()
+    old_expiry = datetime.now(UTC) + timedelta(days=3)
+    new_expiry = datetime.now(UTC) + timedelta(days=33)
+    user = User(
+        id=user_id,
+        email="renew@example.com",
+        password_hash="dummy-hash",
+        subscription_tier="basic",
+        subscription_expires_at=old_expiry,
+        apple_original_transaction_id="orig-renew-123",
+        subscription_auto_renew_enabled=False,
+    )
+    auth_db_session.add(user)
+    await auth_db_session.commit()
+
+    with patch(
+        "app.services.subscription_service.verify_app_store_notification"
+    ) as mock_verify:
+        mock_verify.return_value = {
+            "notification_type": "DID_RENEW",
+            "subtype": None,
+            "transaction_info": {
+                "transaction_id": "txn-renew-002",
+                "original_transaction_id": "orig-renew-123",
+                "product_id": "com.readless.basic.monthly",
+                "subscription_tier": "basic",
+                "purchase_date": datetime.now(UTC),
+                "expires_date": new_expiry,
+                "is_trial": False,
+                "transaction_type": "Auto-Renewable Subscription",
+                "environment": "Production",
+                "app_account_token": None,
+                "revocation_date": None,
+                "is_upgraded": False,
+            },
+            "renewal_info": {
+                "original_transaction_id": "orig-renew-123",
+                "current_product_id": "com.readless.basic.monthly",
+                "auto_renew_product_id": "com.readless.basic.monthly",
+                "auto_renew_enabled": True,
+                "renewal_date": new_expiry,
+                "grace_period_expires_date": None,
+                "expiration_intent": None,
+                "environment": "Production",
+            },
+            "signed_transaction_info": "signed-renewal-jws",
+            "signed_renewal_info": "signed-renewal-info",
+        }
+
+        response = await test_client.post(
+            "/api/v1/subscription/webhook",
+            json={"signedPayload": "ignored"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["applied"] is True
+
+    await auth_db_session.refresh(user)
+    assert ensure_utc(user.subscription_expires_at) == new_expiry
+    assert user.subscription_auto_renew_enabled is True
+    assert user.apple_receipt_data == "signed-renewal-jws"
+
+
+@pytest.mark.asyncio
+async def test_webhook_uses_app_account_token_for_initial_binding(
+    test_client, auth_db_session
+):
+    """Test webhook can bind the first transaction to a user by appAccountToken."""
+    user_id = uuid4()
+    new_expiry = datetime.now(UTC) + timedelta(days=30)
+    user = User(
+        id=user_id,
+        email="bind@example.com",
+        password_hash="dummy-hash",
+        subscription_tier="trial",
+        trial_expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    auth_db_session.add(user)
+    await auth_db_session.commit()
+
+    with patch(
+        "app.services.subscription_service.verify_app_store_notification"
+    ) as mock_verify:
+        mock_verify.return_value = {
+            "notification_type": "SUBSCRIBED",
+            "subtype": "INITIAL_BUY",
+            "transaction_info": {
+                "transaction_id": "txn-bind-001",
+                "original_transaction_id": "orig-bind-001",
+                "product_id": "com.readless.pro.monthly",
+                "subscription_tier": "pro",
+                "purchase_date": datetime.now(UTC),
+                "expires_date": new_expiry,
+                "is_trial": False,
+                "transaction_type": "Auto-Renewable Subscription",
+                "environment": "Production",
+                "app_account_token": str(user_id),
+                "revocation_date": None,
+                "is_upgraded": False,
+            },
+            "renewal_info": {
+                "original_transaction_id": "orig-bind-001",
+                "current_product_id": "com.readless.pro.monthly",
+                "auto_renew_product_id": "com.readless.pro.monthly",
+                "auto_renew_enabled": True,
+                "renewal_date": new_expiry,
+                "grace_period_expires_date": None,
+                "expiration_intent": None,
+                "environment": "Production",
+            },
+            "signed_transaction_info": "signed-bind-jws",
+            "signed_renewal_info": "signed-bind-renewal",
+        }
+
+        response = await test_client.post(
+            "/api/v1/subscription/webhook",
+            json={"signedPayload": "ignored"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["applied"] is True
+
+    await auth_db_session.refresh(user)
+    assert user.apple_original_transaction_id == "orig-bind-001"
+    assert user.subscription_tier == "pro"
+    assert ensure_utc(user.subscription_expires_at) == new_expiry
+    assert user.subscription_auto_renew_enabled is True
+    assert user.trial_expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_disables_auto_renew_without_changing_current_tier(
+    test_client, auth_db_session
+):
+    """Test cancellation webhook only changes the renewal flag before expiry."""
+    user_id = uuid4()
+    expires_at = datetime.now(UTC) + timedelta(days=10)
+    user = User(
+        id=user_id,
+        email="cancel@example.com",
+        password_hash="dummy-hash",
+        subscription_tier="pro",
+        subscription_expires_at=expires_at,
+        apple_original_transaction_id="orig-cancel-001",
+        subscription_auto_renew_enabled=True,
+    )
+    auth_db_session.add(user)
+    await auth_db_session.commit()
+
+    with patch(
+        "app.services.subscription_service.verify_app_store_notification"
+    ) as mock_verify:
+        mock_verify.return_value = {
+            "notification_type": "DID_CHANGE_RENEWAL_STATUS",
+            "subtype": "AUTO_RENEW_DISABLED",
+            "transaction_info": None,
+            "renewal_info": {
+                "original_transaction_id": "orig-cancel-001",
+                "current_product_id": "com.readless.pro.monthly",
+                "auto_renew_product_id": "com.readless.pro.monthly",
+                "auto_renew_enabled": False,
+                "renewal_date": expires_at,
+                "grace_period_expires_date": None,
+                "expiration_intent": None,
+                "environment": "Production",
+            },
+            "signed_transaction_info": None,
+            "signed_renewal_info": "signed-renewal-info",
+        }
+
+        response = await test_client.post(
+            "/api/v1/subscription/webhook",
+            json={"signedPayload": "ignored"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["applied"] is True
+    assert response.json()["current_tier"] == "pro"
+
+    await auth_db_session.refresh(user)
+    assert user.subscription_tier == "pro"
+    assert ensure_utc(user.subscription_expires_at) == expires_at
+    assert user.subscription_auto_renew_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_unknown_user_is_ignored(test_client, auth_db_session):
+    """Test webhook returns 200 but does not mutate when no user matches."""
+    with patch(
+        "app.services.subscription_service.verify_app_store_notification"
+    ) as mock_verify:
+        mock_verify.return_value = {
+            "notification_type": "DID_RENEW",
+            "subtype": None,
+            "transaction_info": {
+                "transaction_id": "txn-unknown-001",
+                "original_transaction_id": "orig-unknown-001",
+                "product_id": "com.readless.basic.monthly",
+                "subscription_tier": "basic",
+                "purchase_date": datetime.now(UTC),
+                "expires_date": datetime.now(UTC) + timedelta(days=30),
+                "is_trial": False,
+                "transaction_type": "Auto-Renewable Subscription",
+                "environment": "Production",
+                "app_account_token": None,
+                "revocation_date": None,
+                "is_upgraded": False,
+            },
+            "renewal_info": None,
+            "signed_transaction_info": "signed-unknown-jws",
+            "signed_renewal_info": None,
+        }
+
+        response = await test_client.post(
+            "/api/v1/subscription/webhook",
+            json={"signedPayload": "ignored"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["applied"] is False
+    assert response.json()["reason"] == "user_not_found"
+
+
+@pytest.mark.asyncio
+async def test_subscription_status_uses_stored_auto_renew_flag(
+    test_client, auth_db_session
+):
+    """Test status endpoint returns webhook-managed auto-renew state."""
+    user_id = uuid4()
+    expires_at = datetime.now(UTC) + timedelta(days=14)
+    user = User(
+        id=user_id,
+        email="status-renew@example.com",
+        password_hash="dummy-hash",
+        subscription_tier="basic",
+        subscription_expires_at=expires_at,
+        subscription_auto_renew_enabled=False,
+    )
+    auth_db_session.add(user)
+    await auth_db_session.commit()
+
+    from app.services.subscription_service import SubscriptionService
+
+    service = SubscriptionService(auth_db_session)
+    result = await service.get_subscription_status(user_id=user_id)
+
+    assert result["current_tier"] == "basic"
+    assert result["auto_renew_enabled"] is False

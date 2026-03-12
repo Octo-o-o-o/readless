@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user_id
 from app.database import get_db
 from app.schemas.subscription import (
+    AppStoreWebhookRequest,
+    AppStoreWebhookResponse,
     SubscriptionStatusResponse,
     VerifyReceiptRequest,
     VerifyReceiptResponse,
@@ -38,6 +40,7 @@ async def verify_receipt(
             user_id=user_uuid,
             jws_receipt=request.verification_data,
             transaction_id=request.transaction_id,
+            product_id=request.product_id,
         )
 
         return VerifyReceiptResponse(**result)
@@ -72,22 +75,37 @@ async def get_status(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/webhook")
+@router.post("/webhook", response_model=AppStoreWebhookResponse)
 async def app_store_webhook(
-    # TODO: Implement App Store Server Notifications v2 handler
+    request: AppStoreWebhookRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Handle App Store Server Notifications v2.
+    """Handle production App Store Server Notifications v2."""
+    return await _process_webhook(request=request, db=db)
 
-    This endpoint receives real-time subscription events:
-    - SUBSCRIBED: User subscribed
-    - DID_RENEW: Subscription renewed
-    - DID_FAIL_TO_RENEW: Renewal failed
-    - EXPIRED: Subscription expired
-    - REFUND: Purchase refunded
-    """
-    # TODO: Verify webhook signature
-    # TODO: Parse signedPayload
-    # TODO: Update user subscription based on event type
-    raise HTTPException(status_code=501, detail="Webhook handler not implemented yet")
+
+@router.post("/webhook-sandbox", response_model=AppStoreWebhookResponse)
+async def app_store_webhook_sandbox(
+    request: AppStoreWebhookRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle Sandbox App Store Server Notifications v2."""
+    return await _process_webhook(
+        request=request,
+        db=db,
+        environment_name="Sandbox",
+    )
+
+
+async def _process_webhook(
+    *,
+    request: AppStoreWebhookRequest,
+    db: AsyncSession,
+    environment_name: str | None = None,
+) -> AppStoreWebhookResponse:
+    subscription_service = SubscriptionService(db)
+    result = await subscription_service.process_app_store_notification(
+        request.signedPayload,
+        environment_name=environment_name,
+    )
+    return AppStoreWebhookResponse(**result)

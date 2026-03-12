@@ -91,9 +91,22 @@ final class AuthService {
     }
 
     func signOut() async throws {
-        // TODO: Call logout endpoint when auth middleware is added
+        var logoutError: Error?
+
+        if isAuthenticated, accessToken != nil {
+            do {
+                _ = try await APIClient.shared.logout()
+            } catch {
+                logoutError = error
+            }
+        }
+
         clearSession()
         print("[AuthService] Signed out")
+
+        if let logoutError {
+            throw logoutError
+        }
     }
 
     // MARK: - Token Management
@@ -104,6 +117,10 @@ final class AuthService {
         }
 
         let response = try await APIClient.shared.refreshToken(refreshToken)
+        if let rotatedRefreshToken = response.refreshToken {
+            try keychain.saveRefreshToken(rotatedRefreshToken)
+            self.refreshToken = rotatedRefreshToken
+        }
         self.accessToken = response.accessToken
         APIClient.shared.authToken = response.accessToken
 

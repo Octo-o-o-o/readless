@@ -1,7 +1,12 @@
 """Pytest configuration and fixtures for tests."""
 
+import os
 from unittest.mock import patch
 from uuid import uuid4
+
+# Ensure test imports do not require local production secrets.
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-0123456789abcd")
+os.environ.setdefault("ADMIN_TOKEN", "test-admin-token-0123456789abcdef")
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -66,6 +71,10 @@ async def db_session():
                     full_text_tsv TEXT,
                     user_id TEXT NOT NULL,
                     status VARCHAR(20) NOT NULL,
+                    processing_started_at TIMESTAMP,
+                    processing_finished_at TIMESTAMP,
+                    processing_error TEXT,
+                    processing_attempts INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
@@ -83,6 +92,21 @@ async def db_session():
                     PRIMARY KEY (content_id, tag_id),
                     FOREIGN KEY (content_id) REFERENCES contents (id) ON DELETE CASCADE,
                     FOREIGN KEY (tag_id) REFERENCES user_tags (id) ON DELETE CASCADE
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE paragraphs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    content_id VARCHAR(36) NOT NULL,
+                    anchor_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    full_text_tsv TEXT,
+                    FOREIGN KEY (content_id) REFERENCES contents (id) ON DELETE CASCADE
                 )
                 """
             )
@@ -247,6 +271,10 @@ def mock_storekit_verify():
                 "purchase_date": datetime.now(UTC),
                 "expires_date": datetime.now(UTC) + timedelta(days=30),
                 "is_trial": False,
+                "environment": "Sandbox",
+                "app_account_token": None,
+                "revocation_date": None,
+                "is_upgraded": False,
             }
 
         mock.side_effect = mock_verify

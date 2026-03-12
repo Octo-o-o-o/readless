@@ -3,7 +3,6 @@ import AppKit
 import Core
 import Networking
 import UI
-import Storage
 
 // MARK: - Content Manager
 
@@ -28,16 +27,24 @@ final class ContentManager {
 
     // MARK: - Private
 
-    private let api = APIClient.shared
-    private let database = LocalDatabase.shared
+    @ObservationIgnored
+    private let repository: ContentRepository
+    @ObservationIgnored
     private var lastLoadedUserId: String?
+    private typealias ProcessingBehavior = ImportTrackingCoordinator.TrackingBehavior
+    @ObservationIgnored
+    private var importTracker: ImportTrackingCoordinator! = nil
+    private let completionDelay: Duration = .milliseconds(500)
 
     /// Get current user ID for database filtering
     private var currentUserId: String? {
         AuthService.shared.currentUser?.id.uuidString
     }
 
-    private init() {}
+    private init(repository: ContentRepository = ContentRepository()) {
+        self.repository = repository
+        self.importTracker = makeImportTracker()
+    }
 
     // MARK: - Import Methods
 
@@ -46,16 +53,15 @@ final class ContentManager {
         showToast("Received from \(appName ?? "clipboard")")
         do {
             let sourceType = sourceType ?? (text.hasPrefix("http") ? "url" : "text")
-            let content = try await api.createContent(
+            let content = try await repository.createContent(
                 sourceType: sourceType,
                 body: text,
                 appName: appName,
                 bundleID: bundleID
             )
-            contents.insert(content, at: 0)
-
-            // Save to local cache
-            try await database.saveContent(content, userId: currentUserId)
+            upsertContent(content)
+            try await repository.cacheContent(content, userId: currentUserId)
+            startTrackingIfNeeded(content, behavior: .silentImport)
         } catch {
             // Show user-friendly error message
             let message = userFriendlyErrorMessage(for: error)
@@ -68,25 +74,16 @@ final class ContentManager {
         capsuleState = .processing
         do {
             let sourceType = text.hasPrefix("http") ? "url" : "text"
-            let content = try await api.createContent(
+            let content = try await repository.createContent(
                 sourceType: sourceType,
                 body: text,
                 appName: appName,
                 bundleID: bundleID
             )
-            contents.insert(content, at: 0)
+            upsertContent(content)
+            try await repository.cacheContent(content, userId: currentUserId)
             processingContent = content
-            capsuleState = .completed
-
-            // Save to local cache
-            try await database.saveContent(content, userId: currentUserId)
-
-            // Brief delay before transitioning to the result panel.
-            try? await Task.sleep(for: .milliseconds(500))
-            if capsuleState == .completed {
-                showResultPanel = true
-                capsuleState = .dismissed
-            }
+            startTrackingIfNeeded(content, behavior: .displayImport)
         } catch {
             capsuleState = .dismissed
             // Show user-friendly error message
@@ -98,20 +95,24 @@ final class ContentManager {
     /// Import content quietly — no capsule, no toast. For use from Command Bar.
     func importQuietly(text: String, appName: String?, bundleID: String?) async throws -> Content {
         let sourceType = text.hasPrefix("http") ? "url" : "text"
-        let content = try await api.createContent(
+        let content = try await repository.createContent(
             sourceType: sourceType,
             body: text,
             appName: appName,
             bundleID: bundleID
         )
-        contents.insert(content, at: 0)
-        try await database.saveContent(content, userId: currentUserId)
+        upsertContent(content)
+        try await repository.cacheContent(content, userId: currentUserId)
+        startTrackingIfNeeded(content, behavior: .quietImport)
         return content
     }
 
     /// Cancel any in-progress import and dismiss the capsule.
     func cancelProcessing() {
         capsuleState = .dismissed
+        if let contentID = processingContent?.id {
+            importTracker.disableInteractiveBehavior(contentID: contentID)
+        }
         processingContent = nil
     }
 
@@ -128,32 +129,35 @@ final class ContentManager {
 
         // Claim legacy cache rows (user_id was added in v4; older rows are NULL).
         if let userId {
-            try? await database.claimLegacyCache(userId: userId)
+            try? await repository.claimLegacyCache(userId: userId)
         }
 
         // 1) Preload from local cache — merge with user-switch clear into one assignment
         if lastLoadedUserId != userId {
             lastLoadedUserId = userId
-            let cached = (try? await database.fetchContents(userId: userId)) ?? []
+            let cached = (try? await repository.fetchCachedContents(userId: userId)) ?? []
             contents = cached  // single render: either cached data or empty
             if !cached.isEmpty {
                 print("[ContentManager] Preloaded \(cached.count) items from local cache")
             }
+            resumeBackgroundTracking(for: cached)
         } else {
-            if let cached = try? await database.fetchContents(userId: userId), !cached.isEmpty {
+            if let cached = try? await repository.fetchCachedContents(userId: userId), !cached.isEmpty {
                 contents = cached
                 print("[ContentManager] Preloaded \(cached.count) items from local cache")
+                resumeBackgroundTracking(for: cached)
             }
         }
 
         // 2) Refresh from backend — only assign if data actually changed
         do {
-            let fresh = try await api.listContents()
+            let fresh = try await repository.listContents()
             if fresh != contents {
                 contents = fresh
             }
             error = nil
             await cacheContents(fresh)
+            resumeBackgroundTracking(for: fresh)
         } catch {
             // Keep cached list if refresh fails
             self.error = error
@@ -167,7 +171,7 @@ final class ContentManager {
         defer { isLoading = false }
 
         do {
-            contents = try await api.fetchContentsByTag(tagId: tagId)
+            contents = try await repository.fetchContentsByTag(tagId: tagId)
             error = nil
             await cacheContents(contents)
         } catch {
@@ -184,13 +188,10 @@ final class ContentManager {
     /// Refresh a single content item by fetching its latest data.
     func refreshContent(id: String) async {
         do {
-            let updatedContent = try await api.fetchContent(id: id)
-
-            if let index = contents.firstIndex(where: { $0.id == id }) {
-                contents[index] = updatedContent
-            }
-
-            try? await database.saveContent(updatedContent, userId: currentUserId)
+            let updatedContent = try await repository.fetchContent(id: id)
+            upsertContent(updatedContent)
+            try? await repository.cacheContent(updatedContent, userId: currentUserId)
+            startTrackingIfNeeded(updatedContent, behavior: .background)
             error = nil
         } catch {
             self.error = error
@@ -200,8 +201,94 @@ final class ContentManager {
 
     /// Save an array of content items to local cache in a single transaction.
     private func cacheContents(_ items: [Content]) async {
-        let userId = currentUserId
-        try? await database.saveContents(items, userId: userId)
+        try? await repository.cacheContents(items, userId: currentUserId)
+    }
+
+    private func upsertContent(_ content: Content) {
+        if let index = contents.firstIndex(where: { $0.id == content.id }) {
+            contents[index] = content
+        } else {
+            contents.insert(content, at: 0)
+        }
+    }
+
+    private func resumeBackgroundTracking(for items: [Content]) {
+        importTracker.resumeBackgroundTracking(for: items)
+    }
+
+    private func startTrackingIfNeeded(_ content: Content, behavior: ProcessingBehavior) {
+        if behavior.showResultOnReady || behavior.keepsCapsule {
+            processingContent = content
+        }
+
+        importTracker.trackIfNeeded(content, behavior: behavior)
+    }
+
+    private func handleTrackedContentFailure(_ content: Content, behavior: ProcessingBehavior) {
+        if behavior.keepsCapsule {
+            capsuleState = .dismissed
+        }
+
+        if behavior.showFailureToast {
+            showToast(content.l0Summary ?? "Import failed. Please try again.")
+        }
+
+        if processingContent?.id == content.id {
+            processingContent = content
+        }
+    }
+
+    private func handleTrackedContentReady(_ content: Content, behavior: ProcessingBehavior) {
+        if behavior.showResultOnReady {
+            processingContent = content
+        }
+
+        if behavior.keepsCapsule {
+            capsuleState = .completed
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(for: self.completionDelay)
+                guard self.capsuleState == .completed else { return }
+                if behavior.showResultOnReady {
+                    self.showResultPanel = true
+                }
+                self.capsuleState = .dismissed
+            }
+        } else if behavior.showResultOnReady {
+            showResultPanel = true
+        }
+    }
+
+    private func handleTrackedContentUpdate(_ content: Content) {
+        upsertContent(content)
+        if processingContent?.id == content.id {
+            processingContent = content
+        }
+        error = nil
+    }
+
+    private func makeImportTracker() -> ImportTrackingCoordinator {
+        ImportTrackingCoordinator(
+            fetchContent: { [repository] contentID in
+                try await repository.fetchContent(id: contentID)
+            },
+            persistContent: { [weak self, repository] content in
+                guard let self else { return }
+                try? await repository.cacheContent(content, userId: self.currentUserId)
+            },
+            onContentUpdate: { [weak self] content in
+                self?.handleTrackedContentUpdate(content)
+            },
+            onReady: { [weak self] content, behavior in
+                self?.handleTrackedContentReady(content, behavior: behavior)
+            },
+            onFailure: { [weak self] content, behavior in
+                self?.handleTrackedContentFailure(content, behavior: behavior)
+            },
+            onPollingError: { contentID, error in
+                print("[ContentManager] Polling failed for \(contentID): \(error)")
+            }
+        )
     }
 
     // MARK: - Notifications

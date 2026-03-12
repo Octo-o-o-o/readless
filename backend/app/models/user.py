@@ -34,7 +34,7 @@ class User(Base):
     __table_args__ = (
         CheckConstraint(
             "email IS NOT NULL OR apple_id IS NOT NULL",
-            name="user_identity_check"
+            name="user_identity_check",
         ),
     )
 
@@ -60,6 +60,7 @@ class User(Base):
     # Apple receipt tracking
     apple_original_transaction_id: Mapped[str | None] = mapped_column(String(255))
     apple_receipt_data: Mapped[str | None] = mapped_column(Text)
+    subscription_auto_renew_enabled: Mapped[bool | None] = mapped_column(Boolean)
 
     # Email verification
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

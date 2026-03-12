@@ -139,12 +139,14 @@ async def refresh_token(
     auth_service = AuthService(db)
 
     try:
-        access_token = await auth_service.refresh_access_token(
-            refresh_token_str=request.refresh_token
+        access_token, refresh_token = await auth_service.refresh_access_token(
+            refresh_token_str=request.refresh_token,
+            rotate_refresh_token=request.rotate_refresh_token,
         )
 
         return RefreshTokenResponse(
             access_token=access_token,
+            refresh_token=refresh_token,
             expires_in=900,
         )
     except ValueError as e:

@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 # ============ Request Schemas ============
 
@@ -33,6 +33,7 @@ class VerifyEmailCodeRequest(BaseModel):
 class RefreshTokenRequest(BaseModel):
     """Refresh token request."""
     refresh_token: str
+    rotate_refresh_token: bool = False
 
 
 class VerifyEmailRequest(BaseModel):
@@ -80,8 +81,7 @@ class UserResponse(BaseModel):
     email_verified: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RegisterResponse(BaseModel):
@@ -113,6 +113,7 @@ class EmailCodeLoginResponse(LoginResponse):
 class RefreshTokenResponse(BaseModel):
     """Refresh token response."""
     access_token: str
+    refresh_token: str | None = None
     expires_in: int
 
 

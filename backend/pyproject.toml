@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Readless - AI-powered reading assistant backend"
 requires-python = ">=3.12"
 dependencies = [
+    "app-store-server-library>=2.0,<3",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.34,<1",
     "openai>=1.0,<2",
@@ -52,4 +53,5 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

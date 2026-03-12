@@ -1,5 +1,6 @@
 """REST API routes for content CRUD, expand, and follow-up Q&A."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,11 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user_id
+from app.config import settings
 from app.database import get_db
 from app.models.content import Content
-from app.models.content_tag import ContentTag
 from app.models.paragraph import Paragraph
-from app.models.user_tag import UserTag
 from app.schemas.content import (
     ContentCreateRequest,
     ContentResponse,
@@ -20,6 +20,11 @@ from app.schemas.content import (
     TextResponse,
 )
 from app.schemas.summary import ContentSummary, OutlinePoint
+from app.services.content_jobs import ContentJobService, get_content_job_service
+from app.services.content_response import (
+    ContentResponseBuilder,
+    get_content_response_builder,
+)
 from app.services.extractor import ExtractedContent, ExtractedParagraph
 from app.services.pipeline import ProcessingPipeline
 from app.services.summarizer import SummarizationService
@@ -30,6 +35,11 @@ router = APIRouter(prefix="/api/v1/content", tags=["content"])
 
 _pipeline: ProcessingPipeline | None = None
 _summarizer: SummarizationService | None = None
+_content_jobs: ContentJobService | None = None
+_content_response_builder: ContentResponseBuilder | None = None
+_processing_tasks: dict[str, asyncio.Task[None]] = (
+    get_content_job_service().processing_tasks
+)
 
 
 def _get_pipeline() -> ProcessingPipeline:
@@ -46,29 +56,57 @@ def _get_summarizer() -> SummarizationService:
     return _summarizer
 
 
+def _get_content_jobs() -> ContentJobService:
+    global _content_jobs
+    if _content_jobs is None:
+        _content_jobs = get_content_job_service()
+    return _content_jobs
+
+
+def _get_response_builder() -> ContentResponseBuilder:
+    global _content_response_builder
+    if _content_response_builder is None:
+        _content_response_builder = get_content_response_builder()
+    return _content_response_builder
+
+
+def _schedule_content_processing(
+    *,
+    content_id: str,
+    source_type: str,
+    body: str,
+    user_id: str,
+) -> None:
+    _get_content_jobs().schedule_processing(
+        content_id=content_id,
+        source_type=source_type,
+        body=body,
+        user_id=user_id,
+        processor=_process_content_in_background,
+    )
+
+
+async def _process_content_in_background(
+    *,
+    content_id: str,
+    source_type: str,
+    body: str,
+    user_id: str,
+) -> None:
+    await _get_content_jobs().process_content_in_background(
+        content_id=content_id,
+        source_type=source_type,
+        body=body,
+        user_id=user_id,
+    )
+
+
 async def _get_content_tags(
     content_id: str,
     db: AsyncSession,
 ) -> list[str]:
-    """Helper to fetch tags for a content item via JOIN.
-
-    Only returns active tags (excludes soft-deleted tags).
-    """
-    try:
-        stmt = (
-            select(UserTag.tag_name)
-            .join(ContentTag, UserTag.id == ContentTag.tag_id)
-            .where(
-                ContentTag.content_id == content_id,
-                UserTag.deleted_at.is_(None),
-            )
-        )
-        result = await db.execute(stmt)
-        return [row[0] for row in result.all()]
-    except Exception as e:
-        # Log error but don't fail the entire response
-        logger.warning(f"Failed to fetch tags for content {content_id}: {e}")
-        return []
+    """Compatibility helper for tests and route-local callers."""
+    return await _get_response_builder().get_content_tags(content_id, db)
 
 
 @router.post("/", response_model=ContentResponse)
@@ -77,8 +115,8 @@ async def create_content(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Ingest content: extract, summarize, and store."""
-    content = await _get_pipeline().process(
+    """Create a pending content item and process it asynchronously."""
+    content = await _get_pipeline().create_pending_content(
         source_type=req.source_type,
         body=req.body,
         user_id=user_id,
@@ -86,6 +124,14 @@ async def create_content(
         source_app_bundle_id=req.source_app_bundle_id,
         channel=req.channel,
         db=db,
+    )
+    await db.commit()
+    await db.refresh(content)
+    _schedule_content_processing(
+        content_id=content.id,
+        source_type=req.source_type,
+        body=req.body,
+        user_id=user_id,
     )
     return await _to_response(content, db)
 
@@ -117,46 +163,25 @@ async def list_contents(
     if not contents:
         return []
 
-    # Batch-fetch ALL tags for all contents in ONE query
-    content_ids = [c.id for c in contents]
-    stmt = (
-        select(ContentTag.content_id, UserTag.tag_name)
-        .join(UserTag, ContentTag.tag_id == UserTag.id)
-        .where(
-            ContentTag.content_id.in_(content_ids),
-            UserTag.deleted_at.is_(None),
-        )
-    )
-    tag_result = await db.execute(stmt)
+    response_builder = _get_response_builder()
+    content_ids = [content.id for content in contents]
+    tags_by_content = await response_builder.get_tags_by_content_ids(content_ids, db)
 
-    # Group tags by content_id
-    tags_by_content: dict[str, list[str]] = {}
-    for content_id, tag_name in tag_result.all():
-        tags_by_content.setdefault(content_id, []).append(tag_name)
-
-    # Build responses with pre-fetched tags
-    responses = []
+    any_status_updated = False
+    responses: list[ContentResponse] = []
     for content in contents:
-        tags = tags_by_content.get(content.id, [])
+        if _mark_stale_content_as_failed(content):
+            any_status_updated = True
+        _schedule_content_recovery(content)
         responses.append(
-            ContentResponse(
-                id=content.id,
-                title=content.title,
-                source_url=content.source_url,
-                source_type=content.source_type,
-                source_app_name=content.source_app_name,
-                source_app_bundle_id=content.source_app_bundle_id,
-                source_language=content.source_language,
-                l0_summary=content.l0_summary,
-                l1_outline=content.l1_outline,
-                tags=tags,
-                status=content.status,
-                created_at=content.created_at,
-                updated_at=content.updated_at,
-                podcast_url=None,
-                full_text=content.full_text,  # Include for local search
+            response_builder.build_with_tags(
+                content,
+                tags_by_content.get(content.id, []),
             )
         )
+
+    if any_status_updated:
+        await db.commit()
 
     return responses
 
@@ -171,6 +196,10 @@ async def get_content(
     content = await db.get(Content, content_id)
     if not content or content.user_id != user_id:
         raise HTTPException(404, "Content not found")
+
+    if _mark_stale_content_as_failed(content):
+        await db.commit()
+    _schedule_content_recovery(content)
     return await _to_response(content, db)
 
 
@@ -236,6 +265,7 @@ async def expand_point(
 ):
     """Expand an outline point into a detailed explanation."""
     content, extracted = await _get_extracted_content(content_id, user_id, db)
+    _ensure_content_ready(content)
 
     outline = content.l1_outline or []
     if req.point_index >= len(outline):
@@ -257,7 +287,8 @@ async def ask_followup(
     user_id: str = Depends(get_current_user_id),
 ):
     """Answer a follow-up question based on the content."""
-    _, extracted = await _get_extracted_content(content_id, user_id, db)
+    content, extracted = await _get_extracted_content(content_id, user_id, db)
+    _ensure_content_ready(content)
     answer = await _get_summarizer().ask_followup(extracted, req.question)
     return TextResponse(text=answer)
 
@@ -282,6 +313,7 @@ async def translate_content(
     content = await db.get(Content, content_id)
     if not content or content.user_id != user_id:
         raise HTTPException(404, "Content not found")
+    _ensure_content_ready(content)
 
     # Check if we have summaries to translate
     if not content.l0_summary or not content.l1_outline:
@@ -326,25 +358,39 @@ async def translate_content(
 
 
 async def _to_response(c: Content, db: AsyncSession) -> ContentResponse:
-    """Convert a Content ORM instance to a ContentResponse.
+    """Compatibility helper for tests and route-local callers."""
+    return await _get_response_builder().build(c, db)
 
-    Fetches tags via JOIN from content_tags table.
-    """
-    tags = await _get_content_tags(c.id, db)
 
-    return ContentResponse(
-        id=c.id,
-        title=c.title,
-        source_url=c.source_url,
-        source_type=c.source_type,
-        source_app_name=c.source_app_name,
-        source_app_bundle_id=c.source_app_bundle_id,
-        source_language=c.source_language,
-        l0_summary=c.l0_summary,
-        l1_outline=c.l1_outline,
-        tags=tags,
-        status=c.status,
-        created_at=c.created_at,
-        updated_at=c.updated_at,
-        full_text=c.full_text,  # Include full_text for local search sync
-    )
+def _ensure_content_ready(content: Content) -> None:
+    """Guard endpoints that require a completed summary."""
+    if content.status == "failed":
+        raise HTTPException(409, "Content processing failed")
+    if content.status != "ready":
+        raise HTTPException(409, "Content is still processing")
+
+
+def _schedule_content_recovery(content: Content) -> None:
+    """Best-effort replay for recoverable async jobs after process restarts."""
+    if content.status not in {"pending", "processing"}:
+        return
+
+    if body := _recoverable_content_body(content):
+        _schedule_content_processing(
+            content_id=content.id,
+            source_type=content.source_type,
+            body=body,
+            user_id=content.user_id,
+        )
+
+
+def _recoverable_content_body(content: Content) -> str | None:
+    """Compatibility helper used by tests."""
+    return _get_content_jobs().recoverable_content_body(content)
+
+
+def _mark_stale_content_as_failed(content: Content) -> bool:
+    """Prevent permanently stuck states when processing exceeds timeout."""
+    if settings.content_processing_timeout_seconds <= 0:
+        return False
+    return _get_content_jobs().mark_stale_content_as_failed(content)

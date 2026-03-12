@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import io
 import logging
 import re
 from dataclasses import dataclass, field
@@ -152,23 +155,36 @@ class ContentExtractor:
     # ------------------------------------------------------------------ #
 
     async def extract_pdf(self, file_path: str) -> ExtractedContent:
-        """Extract text from every page of the PDF at *file_path*."""
-        path = Path(file_path)
+        """Extract text from a PDF path or base64 payload."""
+        path = self._coerce_existing_path(file_path)
 
-        def _do_pdf() -> list[str]:
+        def _extract_from_pdf_handle(pdf_handle) -> list[str]:
             pages: list[str] = []
-            with pdfplumber.open(path) as pdf:
+            with pdfplumber.open(pdf_handle) as pdf:
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:
                         pages.append(page_text)
             return pages
 
+        if path is not None:
+            title = path.stem
+            pdf_source: str | io.BytesIO = path.as_posix()
+        else:
+            pdf_bytes = self._decode_base64_payload(file_path)
+            if pdf_bytes is None:
+                raise ValueError("Invalid PDF payload: expected file path or base64")
+            title = "Uploaded PDF"
+            pdf_source = io.BytesIO(pdf_bytes)
+
+        def _do_pdf() -> list[str]:
+            return _extract_from_pdf_handle(pdf_source)
+
         pages_text = await asyncio.get_event_loop().run_in_executor(None, _do_pdf)
         full_text = "\n\n".join(pages_text)
         paragraphs = self._segment_paragraphs(full_text)
         return ExtractedContent(
-            title=path.stem,
+            title=title,
             full_text=full_text,
             paragraphs=paragraphs,
             source_url=None,
@@ -179,18 +195,54 @@ class ContentExtractor:
     # ------------------------------------------------------------------ #
 
     async def extract_image(self, file_path: str) -> ExtractedContent:
-        """Run OCR on the image at *file_path* (Chinese + English)."""
-        path = Path(file_path)
+        """Run OCR on an image path or base64 payload (Chinese + English)."""
+        path = self._coerce_existing_path(file_path)
+        image_bytes = (
+            None
+            if path is not None
+            else self._decode_base64_payload(file_path)
+        )
+        if path is None and image_bytes is None:
+            raise ValueError("Invalid image payload: expected file path or base64")
+
+        title = path.stem if path is not None else "Uploaded Image"
 
         def _do_ocr() -> str:
-            image = Image.open(path)
-            return pytesseract.image_to_string(image, lang="chi_sim+eng")
+            if path is not None:
+                with Image.open(path) as image:
+                    return pytesseract.image_to_string(image, lang="chi_sim+eng")
+
+            assert image_bytes is not None
+            with Image.open(io.BytesIO(image_bytes)) as image:
+                return pytesseract.image_to_string(image, lang="chi_sim+eng")
 
         full_text = await asyncio.get_event_loop().run_in_executor(None, _do_ocr)
         paragraphs = self._segment_paragraphs(full_text)
         return ExtractedContent(
-            title=path.stem,
+            title=title,
             full_text=full_text,
             paragraphs=paragraphs,
             source_url=None,
         )
+
+    @staticmethod
+    def _coerce_existing_path(payload: str) -> Path | None:
+        """Return payload as a path only when the path exists on disk."""
+        try:
+            path = Path(payload)
+        except (OSError, ValueError):
+            return None
+
+        return path if path.exists() else None
+
+    @staticmethod
+    def _decode_base64_payload(payload: str) -> bytes | None:
+        """Decode plain base64 or data-URI payloads."""
+        normalized = payload.strip()
+        if normalized.startswith("data:") and "," in normalized:
+            _, normalized = normalized.split(",", 1)
+
+        try:
+            return base64.b64decode(normalized, validate=True)
+        except (binascii.Error, ValueError):
+            return None

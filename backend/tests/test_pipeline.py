@@ -4,7 +4,9 @@ These tests require NO database, NO API keys, and NO network access.
 They verify schema validation, structural correctness, and route registration.
 """
 
+import asyncio
 from datetime import datetime
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -282,6 +284,92 @@ class TestPipelineStructure:
         assert "summarizer" in dir(p)
 
 
+@pytest.mark.asyncio
+async def test_create_content_route_returns_pending_and_schedules_background_job():
+    """POST route should return pending content and enqueue background work."""
+    from app.models.content import Content
+    from app.routers.content import create_content
+
+    req = ContentCreateRequest(source_type="text", body="Hello world")
+    pending = Content(
+        id="content-123",
+        title="Hello world",
+        source_type="text",
+        user_id="user-123",
+        status="pending",
+    )
+    response = ContentResponse(
+        id="content-123",
+        title="Hello world",
+        source_url=None,
+        source_type="text",
+        source_app_name=None,
+        l0_summary=None,
+        l1_outline=None,
+        tags=[],
+        status="pending",
+        created_at=datetime(2026, 3, 11),
+    )
+
+    mock_pipeline = AsyncMock()
+    mock_pipeline.create_pending_content = AsyncMock(return_value=pending)
+    mock_db = AsyncMock()
+
+    with patch("app.routers.content._get_pipeline", return_value=mock_pipeline):
+        with patch(
+            "app.routers.content._to_response",
+            AsyncMock(return_value=response),
+        ):
+            with patch("app.routers.content._schedule_content_processing") as schedule:
+                result = await create_content(req=req, db=mock_db, user_id="user-123")
+
+    assert result.status == "pending"
+    mock_pipeline.create_pending_content.assert_awaited_once()
+    mock_db.commit.assert_awaited_once()
+    mock_db.refresh.assert_awaited_once_with(pending)
+    schedule.assert_called_once_with(
+        content_id="content-123",
+        source_type="text",
+        body="Hello world",
+        user_id="user-123",
+    )
+
+
+@pytest.mark.asyncio
+async def test_schedule_content_processing_deduplicates_active_jobs():
+    """Scheduler should not enqueue the same content twice in one process."""
+    from app.routers import content as content_router
+
+    async def fake_process(**_: str) -> None:
+        await asyncio.sleep(0)
+
+    content_router._processing_tasks.clear()
+
+    with patch.object(
+        content_router,
+        "_process_content_in_background",
+        side_effect=fake_process,
+    ) as process:
+        content_router._schedule_content_processing(
+            content_id="content-123",
+            source_type="text",
+            body="Hello world",
+            user_id="user-123",
+        )
+        content_router._schedule_content_processing(
+            content_id="content-123",
+            source_type="text",
+            body="Hello world",
+            user_id="user-123",
+        )
+
+        await content_router._processing_tasks["content-123"]
+        await asyncio.sleep(0)
+
+    assert process.await_count == 1
+    assert content_router._processing_tasks == {}
+
+
 # ------------------------------------------------------------------ #
 #  Router registration tests
 # ------------------------------------------------------------------ #
@@ -350,8 +438,6 @@ class TestRouterRegistration:
 @pytest.mark.asyncio
 async def test_process_content_saves_tags_to_content_tags_table(db_session):
     """Test that pipeline saves AI-selected tags to content_tags table."""
-    from unittest.mock import AsyncMock, patch
-
     from app.models.content_tag import ContentTag
     from app.models.user_tag import UserTag
     from app.services.pipeline import ProcessingPipeline
@@ -367,7 +453,9 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
 
     # Mock extractor to return text long enough for AI summarization (>= 500 chars)
     from app.services.extractor import ExtractedContent, ExtractedParagraph
-    long_text = "This is a comprehensive test article about technology and learning. " * 20
+    long_text = (
+        "This is a comprehensive test article about technology and learning. " * 20
+    )
     mock_extracted = ExtractedContent(
         title="Test Article",
         source_url=None,
@@ -416,7 +504,7 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
             stmt, *args, **kwargs
         )
 
-    # Mock the extractor, summarizer, translator, and pre_generate_details
+    # Mock the extractor, summarizer, and translator
     extract_mock = AsyncMock(return_value=mock_extracted)
     with patch.object(
         pipeline.extractor, "extract_text", extract_mock
@@ -424,9 +512,6 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
         mock_summarizer = AsyncMock()
         mock_summarizer.generate_summary = AsyncMock(
             return_value=mock_summary
-        )
-        mock_summarizer.pre_generate_details = AsyncMock(
-            return_value=mock_summary.l1_outline
         )
 
         mock_translator = AsyncMock()
@@ -463,13 +548,18 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
                                     "commit",
                                     AsyncMock(),
                                 ):
-                                    # Process content
-                                    await pipeline.process(
-                                        source_type="text",
-                                        body=long_text,
-                                        user_id=test_user_id,
-                                        db=db_session,
-                                    )
+                                    with patch.object(
+                                        db_session,
+                                        "refresh",
+                                        AsyncMock(),
+                                    ):
+                                        # Process content
+                                        await pipeline.process(
+                                            source_type="text",
+                                            body=long_text,
+                                            user_id=test_user_id,
+                                            db=db_session,
+                                        )
 
     # Verify content_tags were added
     assert len(added_content_tags) == 2, (
@@ -496,8 +586,6 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
 @pytest.mark.asyncio
 async def test_process_content_skips_nonexistent_tags(db_session):
     """Test that pipeline skips tags that don't exist in user's library."""
-    from unittest.mock import AsyncMock, patch
-
     from app.models.content_tag import ContentTag
     from app.models.user_tag import UserTag
     from app.services.pipeline import ProcessingPipeline
@@ -511,7 +599,9 @@ async def test_process_content_skips_nonexistent_tags(db_session):
 
     # Mock extractor to return text long enough for AI summarization (>= 500 chars)
     from app.services.extractor import ExtractedContent, ExtractedParagraph
-    long_text = "This is a comprehensive test article about technology and learning. " * 20
+    long_text = (
+        "This is a comprehensive test article about technology and learning. " * 20
+    )
     mock_extracted = ExtractedContent(
         title="Test Article",
         source_url=None,
@@ -560,7 +650,7 @@ async def test_process_content_skips_nonexistent_tags(db_session):
             stmt, *args, **kwargs
         )
 
-    # Mock the extractor, summarizer, translator, and pre_generate_details
+    # Mock the extractor, summarizer, and translator
     extract_mock = AsyncMock(return_value=mock_extracted)
     with patch.object(
         pipeline.extractor, "extract_text", extract_mock
@@ -568,9 +658,6 @@ async def test_process_content_skips_nonexistent_tags(db_session):
         mock_summarizer = AsyncMock()
         mock_summarizer.generate_summary = AsyncMock(
             return_value=mock_summary
-        )
-        mock_summarizer.pre_generate_details = AsyncMock(
-            return_value=mock_summary.l1_outline
         )
 
         mock_translator = AsyncMock()
@@ -607,13 +694,18 @@ async def test_process_content_skips_nonexistent_tags(db_session):
                                     "commit",
                                     AsyncMock(),
                                 ):
-                                    # Process content
-                                    await pipeline.process(
-                                        source_type="text",
-                                        body=long_text,
-                                        user_id=test_user_id,
-                                        db=db_session,
-                                    )
+                                    with patch.object(
+                                        db_session,
+                                        "refresh",
+                                        AsyncMock(),
+                                    ):
+                                        # Process content
+                                        await pipeline.process(
+                                            source_type="text",
+                                            body=long_text,
+                                            user_id=test_user_id,
+                                            db=db_session,
+                                        )
 
     # Verify only ONE content_tag was created
     assert len(added_content_tags) == 1, (
@@ -629,3 +721,121 @@ async def test_process_content_skips_nonexistent_tags(db_session):
     assert added_content_tags[0].user_id == test_user_id, (
         "ContentTag user_id mismatch"
     )
+
+
+@pytest.mark.asyncio
+async def test_process_pending_content_marks_failed_when_processing_raises():
+    """Background processing should leave a visible failed state on errors."""
+    from app.models.content import Content
+    from app.services.pipeline import FAILED_IMPORT_SUMMARY, ProcessingPipeline
+
+    content = Content(
+        id="failed-123",
+        title="Pending",
+        source_type="text",
+        user_id="user-123",
+        status="pending",
+    )
+    db = AsyncMock()
+    db.get = AsyncMock(side_effect=[content, content])
+
+    pipeline = ProcessingPipeline()
+
+    with patch.object(
+        pipeline,
+        "_process_into_content",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    ):
+        result = await pipeline.process_pending_content(
+            content_id="failed-123",
+            source_type="text",
+            body="Hello world",
+            user_id="user-123",
+            db=db,
+        )
+
+    assert result is content
+    assert content.status == "failed"
+    assert content.l0_summary == FAILED_IMPORT_SUMMARY
+    assert content.l1_outline == []
+    assert content.processing_attempts == 1
+    assert content.processing_started_at is not None
+    assert content.processing_finished_at is not None
+    assert content.processing_error is not None
+    assert "RuntimeError" in content.processing_error
+    assert "boom" in content.processing_error
+    assert db.rollback.await_count == 1
+    assert db.commit.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_process_pending_content_promotes_content_to_ready():
+    """Background processing should update the placeholder row in place."""
+    from app.models.content import Content
+    from app.schemas.summary import ContentSummary, OutlinePoint
+    from app.services.extractor import ExtractedContent, ExtractedParagraph
+    from app.services.pipeline import ProcessingPipeline
+
+    content = Content(
+        id="ready-123",
+        title="Pending",
+        source_type="text",
+        user_id="user-123",
+        status="pending",
+    )
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=content)
+
+    extracted = ExtractedContent(
+        title="Real title",
+        source_url=None,
+        full_text="A" * 800,
+        paragraphs=[
+            ExtractedParagraph(anchor_id="¶1", text="Paragraph", position=0)
+        ],
+    )
+    summary = ContentSummary(
+        l0_summary="Summary",
+        l1_outline=[OutlinePoint(point="Point", anchors=["¶1"])],
+        tags=[],
+        keywords=["kw"],
+    )
+
+    pipeline = ProcessingPipeline()
+
+    with patch.object(pipeline, "_extract_content", AsyncMock(return_value=extracted)):
+        with patch.object(
+            pipeline,
+            "_summarize_content",
+            AsyncMock(return_value=(summary, "en")),
+        ):
+            with patch.object(
+                pipeline,
+                "_replace_related_rows",
+                AsyncMock(),
+            ) as replace_rows:
+                with patch.object(
+                    pipeline,
+                    "_update_full_text_search",
+                    AsyncMock(),
+                ) as update_fts:
+                    result = await pipeline.process_pending_content(
+                        content_id="ready-123",
+                        source_type="text",
+                        body="Hello world",
+                        user_id="user-123",
+                        db=db,
+                    )
+
+    assert result is content
+    assert content.status == "ready"
+    assert content.title == "Real title"
+    assert content.l0_summary == "Summary"
+    assert content.source_language == "en"
+    assert content.full_text == "A" * 800
+    assert content.processing_attempts == 1
+    assert content.processing_started_at is not None
+    assert content.processing_finished_at is not None
+    assert content.processing_error is None
+    replace_rows.assert_awaited_once()
+    update_fts.assert_awaited_once_with(content_id="ready-123", db=db)

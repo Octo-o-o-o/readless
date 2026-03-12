@@ -51,6 +51,10 @@ class Settings(BaseSettings):
 
     # --- Apple Configuration ---
     apple_bundle_id: str = "com.readless.app"
+    apple_app_store_environment: str = "Production"
+    apple_app_apple_id: int | None = None
+    apple_enable_online_checks: bool = True
+    apple_allow_test_environments: bool = False
 
     # --- Resend (Email) ---
     resend_api_key: str = ""
@@ -63,6 +67,8 @@ class Settings(BaseSettings):
 
     # --- Development ---
     disable_auth: bool = False  # Set to True to disable authentication (dev only)
+    content_processing_concurrency: int = 2
+    content_processing_timeout_seconds: int = 1800
 
 
 settings = Settings()

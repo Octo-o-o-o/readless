@@ -283,10 +283,7 @@ final class CommandBarService {
 
             // Signal success — CommandBarWindow handles the auto-dismiss timer
             aiCoordinator.commandBarImportState = .success
-
-            // Auto-select the imported content in the main view
-            contentManager.processingContent = content
-            contentManager.showResultPanel = true
+            _ = content
         } catch {
             aiCoordinator.commandBarImportState = .idle
             let message = userFriendlyErrorMessage(for: error)
@@ -305,8 +302,7 @@ final class CommandBarService {
             )
 
             aiCoordinator.commandBarImportState = .success
-            contentManager.processingContent = content
-            contentManager.showResultPanel = true
+            _ = content
         } catch {
             aiCoordinator.commandBarImportState = .idle
             let message = userFriendlyErrorMessage(for: error)

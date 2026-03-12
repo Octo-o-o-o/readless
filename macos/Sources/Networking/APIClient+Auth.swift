@@ -100,20 +100,28 @@ public struct AppleSignInResponse: Codable {
 
 public struct RefreshTokenRequest: Codable {
     let refreshToken: String
+    let rotateRefreshToken: Bool
 
     enum CodingKeys: String, CodingKey {
         case refreshToken = "refresh_token"
+        case rotateRefreshToken = "rotate_refresh_token"
     }
 }
 
 public struct RefreshTokenResponse: Codable {
     public let accessToken: String
+    public let refreshToken: String?
     public let expiresIn: Int
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
+        case refreshToken = "refresh_token"
         case expiresIn = "expires_in"
     }
+}
+
+public struct MessageResponse: Codable {
+    public let message: String
 }
 
 // MARK: - API Client Auth Extension
@@ -155,10 +163,18 @@ extension APIClient {
     }
 
     public func refreshToken(_ refreshToken: String) async throws -> RefreshTokenResponse {
-        let req = RefreshTokenRequest(refreshToken: refreshToken)
+        let req = RefreshTokenRequest(
+            refreshToken: refreshToken,
+            rotateRefreshToken: true
+        )
         let payload = try JSONEncoder().encode(req)
         let data = try await request("/api/v1/auth/refresh", method: "POST", body: payload)
         return try JSONDecoder.apiDecoder.decode(RefreshTokenResponse.self, from: data)
+    }
+
+    public func logout() async throws -> MessageResponse {
+        let data = try await request("/api/v1/auth/logout", method: "POST")
+        return try JSONDecoder.apiDecoder.decode(MessageResponse.self, from: data)
     }
 
     public func getCurrentUser() async throws -> User {

@@ -59,6 +59,18 @@ class Content(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_attempts: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), nullable=False)
 
     # Timestamps

@@ -173,7 +173,6 @@ class RefreshTokenAdmin(ModelView, model=RefreshToken):
     column_details_list = [
         RefreshToken.id,
         RefreshToken.user_id,
-        RefreshToken.token,
         RefreshToken.device_name,
         RefreshToken.device_id,
         RefreshToken.expires_at,

@@ -39,7 +39,8 @@ Return ONLY the JSON object. No markdown, no code blocks."""
 
 EXPAND_SYSTEM_PROMPT = """\
 You are a detailed explanation engine. Cite sources using [¶N] markers. \
-Be concise — your explanation should not exceed the length of the cited source paragraphs."""
+Be concise — your explanation should not exceed the length of the cited \
+source paragraphs."""
 
 EXPAND_USER_PROMPT = """\
 Below is a text with numbered paragraph markers [¶N].

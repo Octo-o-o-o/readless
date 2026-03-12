@@ -53,9 +53,8 @@ public final class APIClient: @unchecked Sendable {
     public let baseURL: URL
     // Mutable so the token can be updated after authentication.
     public var authToken: String?
-    private let session: URLSession
-    /// Deduplication guard: only one token refresh runs at a time.
-    private var activeRefreshTask: Task<Bool, Never>?
+    private let transport: HTTPTransport
+    private let refreshCoordinator: AuthRefreshCoordinator
 
     /// Get configured API base URL from UserDefaults or use production by default.
     private static func getConfiguredBaseURL() -> URL {
@@ -81,11 +80,14 @@ public final class APIClient: @unchecked Sendable {
     public init(
         baseURL: URL? = nil,
         authToken: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        transport: HTTPTransport? = nil,
+        refreshCoordinator: AuthRefreshCoordinator = AuthRefreshCoordinator()
     ) {
         self.baseURL = baseURL ?? Self.getConfiguredBaseURL()
         self.authToken = authToken
-        self.session = session
+        self.transport = transport ?? HTTPTransport(session: session)
+        self.refreshCoordinator = refreshCoordinator
     }
 
     // MARK: - Generic Request
@@ -112,54 +114,33 @@ public final class APIClient: @unchecked Sendable {
         req.httpBody = body
 
         do {
-            let (data, response) = try await session.data(for: req)
-
-            guard let http = response as? HTTPURLResponse else {
-                print("[APIClient] ❌ Response is not HTTPURLResponse: \(response)")
-                throw APIError.serverError(0, "Invalid response type")
-            }
+            let result = try await transport.send(req)
+            let data = result.data
+            let http = result.httpResponse
 
             print("[APIClient] 📡 Response status: \(http.statusCode)")
 
             guard 200..<300 ~= http.statusCode else {
                 print("[APIClient] ❌ Server error: \(http.statusCode)")
 
-                // Try to parse backend error message
-                var backendMessage: String?
-                if let errorMessage = String(data: data, encoding: .utf8) {
-                    print("[APIClient] Error response: \(errorMessage)")
+                let backendMessage = parseBackendErrorMessage(from: data)
 
-                    // Try to parse JSON error response {"detail": "message"}
-                    if let errorData = errorMessage.data(using: .utf8),
-                       let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
-                       let detail = errorDict["detail"] as? String {
-                        backendMessage = detail
+                if shouldAttemptTokenRefresh(
+                    path: path,
+                    statusCode: http.statusCode,
+                    isRetry: isRetry
+                ) {
+                    print("[APIClient] 🔄 Token expired, attempting refresh and retry...")
+                    let refreshed = await refreshCoordinator.refreshTokenIfNeeded()
+                    if refreshed {
+                        return try await request(
+                            path,
+                            method: method,
+                            body: body,
+                            isRetry: true
+                        )
                     }
-
-                    // Auto-refresh token once on 401 responses when we have a token.
-                    if http.statusCode == 401
-                        && authToken != nil
-                        && !isRetry
-                        && !path.contains("/api/v1/auth/refresh")
-                    {
-                        print("[APIClient] 🔄 Token expired, attempting refresh and retry...")
-
-                        // Dedup: reuse in-flight refresh or start a new one
-                        let task = activeRefreshTask ?? Task<Bool, Never> {
-                            defer { activeRefreshTask = nil }
-                            await MainActor.run {
-                                NotificationCenter.default.post(name: .refreshAuthToken, object: nil)
-                            }
-                            return await self.waitForTokenRefreshResult()
-                        }
-                        activeRefreshTask = task
-                        let refreshed = await task.value
-                        if refreshed {
-                            return try await request(path, method: method, body: body, isRetry: true)
-                        } else {
-                            print("[APIClient] ❌ Token refresh failed or timed out")
-                        }
-                    }
+                    print("[APIClient] ❌ Token refresh failed or timed out")
                 }
 
                 // Throw appropriate error with parsed message
@@ -179,24 +160,30 @@ public final class APIClient: @unchecked Sendable {
         }
     }
 
-    private func waitForTokenRefreshResult(timeout: Duration = .seconds(5)) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await notification in NotificationCenter.default.notifications(
-                    named: .authTokenRefreshCompleted
-                ) {
-                    return notification.userInfo?["success"] as? Bool ?? false
-                }
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()  // cancels the losing task directly (no separate Task objects to leak)
-            return first
+    private func parseBackendErrorMessage(from data: Data) -> String? {
+        guard let errorMessage = String(data: data, encoding: .utf8) else {
+            return nil
         }
+        print("[APIClient] Error response: \(errorMessage)")
+        guard
+            let errorData = errorMessage.data(using: .utf8),
+            let errorDict = try? JSONSerialization.jsonObject(with: errorData)
+                as? [String: Any]
+        else {
+            return nil
+        }
+        return errorDict["detail"] as? String
+    }
+
+    private func shouldAttemptTokenRefresh(
+        path: String,
+        statusCode: Int,
+        isRetry: Bool
+    ) -> Bool {
+        statusCode == 401
+            && authToken != nil
+            && !isRetry
+            && !path.contains("/api/v1/auth/refresh")
     }
 
     // MARK: - Content Endpoints

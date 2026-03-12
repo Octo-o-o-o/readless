@@ -27,16 +27,23 @@ final class ReaderViewModel {
     var showingTranslation: Bool = false
     var isLoadingTranslation: Bool = false
 
-    private let api: APIClient
-    private let database: LocalDatabase
+    @ObservationIgnored
+    private let repository: ContentRepository
 
     // Private cache of ALL fetched details (persists across collapse/expand)
+    @ObservationIgnored
     private var cachedDetails: [Int: String] = [:]
+    @ObservationIgnored
     private var activeContentID: String?
+    @ObservationIgnored
+    private var importTracker: ImportTrackingCoordinator! = nil
 
     init(api: APIClient? = nil, database: LocalDatabase? = nil) {
-        self.api = api ?? .shared
-        self.database = database ?? .shared
+        self.repository = ContentRepository(
+            api: api ?? .shared,
+            database: database ?? .shared
+        )
+        self.importTracker = makeImportTracker()
     }
 
     /// Whether a translation is available
@@ -53,6 +60,7 @@ final class ReaderViewModel {
 
     func loadContent(contentID: String) async {
         activeContentID = contentID
+        importTracker.cancelAll()
 
         // Reset state for new content
         expandedDetails = [:]
@@ -76,22 +84,24 @@ final class ReaderViewModel {
         isLoadingContent = !hadContent
 
         // 1. Load from local cache first (instant display)
-        if let cached = try? await database.fetchContent(id: contentID) {
+        if let cached = try? await repository.fetchCachedContent(id: contentID) {
             guard activeContentID == contentID, !Task.isCancelled else { return }
             content = cached
             isLoadingContent = false
-            cachedDetails = (try? await database.fetchExpandedDetails(contentId: contentID)) ?? [:]
+            cachedDetails = (try? await repository.fetchExpandedDetails(contentId: contentID)) ?? [:]
+            startPollingIfNeeded(for: cached)
         }
 
         // 2. Fetch from API in background to get fresh data
         do {
-            let fresh = try await api.fetchContent(id: contentID)
+            let fresh = try await repository.fetchContent(id: contentID)
             guard activeContentID == contentID, !Task.isCancelled else { return }
             content = fresh
             isLoadingContent = false
             // Update local cache
             let userId = AuthService.shared.currentUser?.id.uuidString
-            try? await database.saveContent(fresh, userId: userId)
+            try? await repository.cacheContent(fresh, userId: userId)
+            startPollingIfNeeded(for: fresh)
         } catch is CancellationError {
             // Ignore canceled work when user quickly switches content.
         } catch {
@@ -101,23 +111,26 @@ final class ReaderViewModel {
         }
     }
 
+    private func startPollingIfNeeded(for content: Content) {
+        importTracker.trackIfNeeded(content, behavior: .background)
+    }
+
     func loadParagraphs(contentID: String) async {
         guard activeContentID == contentID else { return }
 
         // 1. Load from local cache first
-        if let cached = try? await database.fetchParagraphs(contentId: contentID), !cached.isEmpty {
+        if let cached = try? await repository.fetchParagraphs(contentId: contentID), !cached.isEmpty {
             guard activeContentID == contentID, !Task.isCancelled else { return }
             paragraphs = cached
         }
 
         // 2. Fetch from API for fresh data
         do {
-            let results = try await api.getParagraphs(contentID: contentID)
+            let fresh = try await repository.refreshParagraphs(contentId: contentID)
             guard activeContentID == contentID, !Task.isCancelled else { return }
-            let fresh = results.map { (anchorID: $0.anchorID, text: $0.text) }
             paragraphs = fresh
             // Save to local cache
-            try? await database.saveParagraphs(fresh, contentId: contentID)
+            try? await repository.cacheParagraphs(fresh, contentId: contentID)
         } catch is CancellationError {
             // Ignore canceled work when user quickly switches content.
         } catch {
@@ -198,13 +211,17 @@ final class ReaderViewModel {
         print("[ReaderViewModel] Cache miss for index \(index), requesting backend")
         setLoading(true)
         do {
-            let detail = try await api.expandPoint(contentID: contentID, pointIndex: index)
+            let detail = try await repository.expandPoint(contentID: contentID, pointIndex: index)
             cachedDetails[index] = detail
             setLoading(false)
             setExpandedDetail(detail)
             print("[ReaderViewModel] Expand success index \(index), length=\(detail.count)")
             // Persist to local SQLite cache
-            try? await database.saveExpandedDetail(contentId: contentID, pointIndex: index, detailText: detail)
+            try? await repository.cacheExpandedDetail(
+                contentId: contentID,
+                pointIndex: index,
+                detailText: detail
+            )
         } catch {
             // Silently fail; user can retry
             setLoading(false)
@@ -237,7 +254,10 @@ final class ReaderViewModel {
         defer { isLoadingFollowUp = false }
 
         do {
-            followUpAnswer = try await api.askFollowUp(contentID: content.id, question: question)
+            followUpAnswer = try await repository.askFollowUp(
+                contentID: content.id,
+                question: question
+            )
         } catch {
             followUpAnswer = "Failed to get answer. Please try again."
         }
@@ -265,7 +285,7 @@ final class ReaderViewModel {
         }
 
         do {
-            let translated = try await api.translateContent(
+            let translated = try await repository.translateContent(
                 contentID: translatingContentID,
                 targetLanguage: targetLanguage
             )
@@ -283,6 +303,31 @@ final class ReaderViewModel {
 
     func toggleTranslation(show: Bool) {
         showingTranslation = show && hasTranslation
+    }
+
+    private func makeImportTracker() -> ImportTrackingCoordinator {
+        ImportTrackingCoordinator(
+            fetchContent: { [repository] contentID in
+                try await repository.fetchContent(id: contentID)
+            },
+            persistContent: { [repository] content in
+                let userId = AuthService.shared.currentUser?.id.uuidString
+                try? await repository.cacheContent(content, userId: userId)
+            },
+            onContentUpdate: { [weak self] content in
+                guard let self, self.activeContentID == content.id else { return }
+                self.content = content
+            },
+            onReady: { [weak self] content, _ in
+                guard let self, self.activeContentID == content.id else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.loadParagraphs(contentID: content.id)
+                }
+            },
+            onFailure: { _, _ in },
+            onPollingError: { _, _ in }
+        )
     }
 
     // MARK: - Keyboard Navigation

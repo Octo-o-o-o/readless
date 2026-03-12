@@ -78,6 +78,13 @@ struct ReaderView: View {
                 await viewModel.loadTranslation(targetLanguage: targetLanguage)
             }
         }
+        .onChange(of: viewModel.content?.status) { _, newStatus in
+            if newStatus == .ready, shouldAutoTranslate {
+                Task {
+                    await viewModel.loadTranslation(targetLanguage: targetLanguage)
+                }
+            }
+        }
         .sheet(isPresented: $showFullscreenSheet) {
             fullscreenOriginalView
         }
@@ -94,6 +101,24 @@ struct ReaderView: View {
     @ViewBuilder
     private var mainContentPanel: some View {
         if let baseContent = viewModel.content {
+            if baseContent.status == .failed {
+                ContentUnavailableView(
+                    "Import Failed",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(baseContent.l0Summary ?? "Please try importing this content again.")
+                )
+            } else if baseContent.status != .ready {
+                VStack(spacing: Theme.space12) {
+                    ProgressView()
+                        .controlSize(.large)
+                    Text(baseContent.status == .processing ? "Processing content..." : "Queued for processing...")
+                        .font(.system(size: 15, weight: .medium))
+                    Text("Readless will show the summary here when it is ready.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
             // Language toggle toolbar (pinned at top, not scrollable)
             VStack(spacing: 0) {
                 if viewModel.hasTranslation || viewModel.isLoadingTranslation {
@@ -215,6 +240,7 @@ struct ReaderView: View {
                         }
                     }
                 }
+            }
             }
         } else if viewModel.isLoadingContent {
             // Loading state

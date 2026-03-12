@@ -153,12 +153,20 @@ final class StoreManager {
             throw SubscriptionError.userNotAuthenticated
         }
 
+        guard let appAccountToken = AuthService.shared.currentUser?.id else {
+            print("[StoreManager] ❌ Missing authenticated user context")
+            lastError = .userNotAuthenticated
+            throw SubscriptionError.userNotAuthenticated
+        }
+
         isPurchasing = true
         defer { isPurchasing = false }
 
         do {
             // StoreKit 2 API: execute purchase
-            let result = try await product.purchase()
+            let result = try await product.purchase(
+                options: [.appAccountToken(appAccountToken)]
+            )
 
             switch result {
             case .success(let verification):

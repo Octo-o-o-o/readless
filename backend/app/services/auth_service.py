@@ -21,29 +21,31 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from jwt import InvalidTokenError
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_utils import (
-    create_access_token,
-    create_refresh_token,
     generate_password_reset_token,
     generate_verification_token,
     hash_password,
     validate_password,
     verify_password,
-    verify_refresh_token,
 )
 from app.config import settings
-from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
+from app.models.refresh_token import EmailLoginCode, PasswordResetToken
 from app.models.user import User, _to_utc
 from app.services.email_service import ResendEmailService
+from app.services.session_service import SessionService
 
 
 def _normalize_email(email: str) -> str:
     """Normalize email for lookups and uniqueness checks."""
     return email.strip().lower()
+
+
+def _hash_refresh_token(token: str) -> str:
+    """Hash refresh tokens before storing them in the database."""
+    return SessionService.hash_refresh_token(token)
 
 
 class AuthService:
@@ -58,6 +60,7 @@ class AuthService:
         """
         self.db = db
         self.email_service = ResendEmailService()
+        self.session_service = SessionService(db)
 
     # ==================== User Registration ====================
 
@@ -168,22 +171,12 @@ class AuthService:
         now = datetime.now(UTC)
         user.last_login_at = now
 
-        # Generate tokens
-        user_id_str = str(user.id)
-        access_token = create_access_token(user_id_str)
-        refresh_token_str = create_refresh_token(user_id_str)
-
-        # Store refresh token
-        expires_at = now + timedelta(days=settings.refresh_token_expire_days)
-        refresh_token = RefreshToken(
-            token=refresh_token_str,
-            user_id=user.id,
-            expires_at=expires_at,
+        access_token, refresh_token_str = await self.session_service.issue_session(
+            user=user,
             device_name=device_name,
             device_id=device_id,
-            last_used_at=now,
+            now=now,
         )
-        self.db.add(refresh_token)
         await self.db.commit()
 
         return user, access_token, refresh_token_str
@@ -317,18 +310,12 @@ class AuthService:
             user.last_login_at = now
             user.email_verified = True
 
-        access_token = create_access_token(str(user.id))
-        refresh_token_str = create_refresh_token(str(user.id))
-
-        refresh_token = RefreshToken(
-            token=refresh_token_str,
-            user_id=user.id,
-            expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+        access_token, refresh_token_str = await self.session_service.issue_session(
+            user=user,
             device_name=device_name,
             device_id=device_id,
-            last_used_at=now,
+            now=now,
         )
-        self.db.add(refresh_token)
         await self.db.commit()
         await self.db.refresh(user)
 
@@ -336,58 +323,27 @@ class AuthService:
 
     # ==================== Token Refresh ====================
 
-    async def refresh_access_token(self, refresh_token_str: str) -> str:
+    async def refresh_access_token(
+        self,
+        refresh_token_str: str,
+        rotate_refresh_token: bool = False,
+    ) -> tuple[str, str | None]:
         """
-        Exchange refresh token for new access token.
+        Exchange refresh token for a new access token and rotated refresh token.
 
         Args:
             refresh_token_str: JWT refresh token string
 
         Returns:
-            New access token string
+            Tuple of (new access token, rotated refresh token if requested)
 
         Raises:
             ValueError: If token invalid, expired, revoked, or user deleted
         """
-        # Verify JWT signature and expiry
-        try:
-            payload = verify_refresh_token(refresh_token_str)
-        except InvalidTokenError:
-            raise ValueError("Invalid or expired session. Please log in again.")
-
-        user_id_str = payload["sub"]
-
-        # Check token exists in database
-        result = await self.db.execute(
-            select(RefreshToken).where(RefreshToken.token == refresh_token_str)
+        return await self.session_service.refresh_access_token(
+            refresh_token_str=refresh_token_str,
+            rotate_refresh_token=rotate_refresh_token,
         )
-        token_record = result.scalars().first()
-
-        if not token_record:
-            raise ValueError("Your session has expired. Please log in again.")
-
-        # Check token not expired (double-check DB expiry)
-        now = datetime.now(UTC)
-        if _to_utc(token_record.expires_at) < now:
-            raise ValueError("Your session has expired. Please log in again.")
-
-        # Check user still exists and not deleted
-        user_id = UUID(user_id_str)
-        result = await self.db.execute(
-            select(User).where(User.id == user_id, User.deleted_at.is_(None))
-        )
-        user = result.scalars().first()
-
-        if not user:
-            raise ValueError("Your session has expired. Please log in again.")
-
-        # Update last used time
-        token_record.last_used_at = now
-        await self.db.commit()
-
-        # Generate new access token
-        access_token = create_access_token(user_id_str)
-        return access_token
 
     # ==================== Logout ====================
 
@@ -410,10 +366,7 @@ class AuthService:
         if not user:
             raise ValueError("User not found")
 
-        # Delete all refresh tokens for this user
-        await self.db.execute(
-            delete(RefreshToken).where(RefreshToken.user_id == user_id)
-        )
+        await self.session_service.revoke_all_sessions(user_id)
         await self.db.commit()
 
     # ==================== Email Verification ====================
@@ -587,9 +540,7 @@ class AuthService:
         reset_token.used_at = now
 
         # Revoke all refresh tokens (logout from all devices)
-        await self.db.execute(
-            delete(RefreshToken).where(RefreshToken.user_id == user.id)
-        )
+        await self.session_service.revoke_all_sessions(user.id)
 
         await self.db.commit()
         await self.db.refresh(user)
@@ -624,9 +575,7 @@ class AuthService:
         user.deleted_at = now
 
         # Revoke all refresh tokens
-        await self.db.execute(
-            delete(RefreshToken).where(RefreshToken.user_id == user_id)
-        )
+        await self.session_service.revoke_all_sessions(user_id)
 
         await self.db.commit()
 
@@ -669,10 +618,10 @@ class AuthService:
         user = result.scalar_one_or_none()
 
         is_new_user = False
+        now = datetime.now(UTC)
 
         if not user:
             # Create new user
-            now = datetime.now(UTC)
             user = User(
                 apple_id=apple_id,
                 email=email,
@@ -681,29 +630,19 @@ class AuthService:
                 trial_expires_at=now + timedelta(days=7),
             )
             self.db.add(user)
+            await self.db.flush()
             is_new_user = True
         else:
             # Update last login
-            user.last_login_at = datetime.now(UTC)
+            user.last_login_at = now
 
-        await self.db.commit()
-        await self.db.refresh(user)
-
-        # Generate tokens
-        user_id_str = str(user.id)
-        access_token = create_access_token(user_id_str)
-        refresh_token_str = create_refresh_token(user_id_str)
-
-        # Store refresh token
-        now = datetime.now(UTC)
-        refresh_token = RefreshToken(
-            token=refresh_token_str,
-            user_id=user.id,
-            expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+        access_token, refresh_token_str = await self.session_service.issue_session(
+            user=user,
             device_name=device_name,
             device_id=device_id,
+            now=now,
         )
-        self.db.add(refresh_token)
         await self.db.commit()
+        await self.db.refresh(user)
 
         return user, access_token, refresh_token_str, is_new_user

@@ -29,6 +29,8 @@ from app.schemas.content import (
     TextResponse,
 )
 from app.schemas.subscription import (
+    AppStoreWebhookRequest,
+    AppStoreWebhookResponse,
     SubscriptionStatusResponse,
     VerifyReceiptRequest,
     VerifyReceiptResponse,
@@ -81,4 +83,6 @@ __all__ = [
     "VerifyReceiptRequest",
     "VerifyReceiptResponse",
     "SubscriptionStatusResponse",
+    "AppStoreWebhookRequest",
+    "AppStoreWebhookResponse",
 ]

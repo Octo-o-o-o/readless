@@ -28,3 +28,22 @@ class SubscriptionStatusResponse(BaseModel):
     subscription_expires_at: datetime | None
     product_id: str | None
     auto_renew_enabled: bool
+
+
+class AppStoreWebhookRequest(BaseModel):
+    """App Store Server Notifications v2 request payload."""
+
+    signedPayload: str  # noqa: N815 - matches Apple's webhook payload
+
+
+class AppStoreWebhookResponse(BaseModel):
+    """App Store webhook processing result."""
+
+    status: str
+    applied: bool
+    notification_type: str | None
+    subtype: str | None = None
+    user_id: str | None = None
+    current_tier: str | None = None
+    auto_renew_enabled: bool | None = None
+    reason: str | None = None
