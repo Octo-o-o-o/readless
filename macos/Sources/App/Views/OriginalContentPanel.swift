@@ -4,9 +4,25 @@ import UI
 
 // MARK: - Content Format Detection
 
-private enum ContentFormat {
+private enum ContentFormat: Sendable {
     case plain, markdown, json
 }
+
+private enum RichPreviewMode: Sendable {
+    case automatic
+    case rawSourcePreferred
+    case disabled
+}
+
+private struct PreparedOriginalText: Sendable {
+    let fullText: String?
+    let format: ContentFormat
+    let previewMode: RichPreviewMode
+    let previewNotice: String?
+}
+
+private let originalContentPreviewSoftLimitBytes = 32 * 1024
+private let originalContentPreviewHardLimitBytes = 128 * 1024
 
 private func detectContentFormat(_ text: String) -> ContentFormat {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -47,6 +63,8 @@ struct OriginalContentPanel: View {
     @State private var showRawSource: Bool = false
     @State private var cachedFormat: ContentFormat = .plain
     @State private var cachedFullText: String?
+    @State private var richPreviewMode: RichPreviewMode = .automatic
+    @State private var previewNotice: String?
 
     /// Whether we're in trace mode (showing specific paragraphs)
     private var isTraceMode: Bool { !filterAnchors.isEmpty }
@@ -64,20 +82,80 @@ struct OriginalContentPanel: View {
         return paragraphs.filter { filterAnchors.contains($0.anchorID) }
     }
 
-    /// Recompute cached full text and its detected format
-    private func updateCachedText() {
-        let text: String?
-        if !paragraphs.isEmpty {
-            text = paragraphs.map(\.text).joined(separator: "\n\n")
-        } else {
-            text = content.fullText
+    private nonisolated static func prepareText(
+        paragraphTexts: [String],
+        fullText: String?
+    ) -> PreparedOriginalText {
+        let resolvedText = paragraphTexts.isEmpty
+            ? fullText
+            : paragraphTexts.joined(separator: "\n\n")
+
+        guard let resolvedText, !resolvedText.isEmpty else {
+            return PreparedOriginalText(
+                fullText: nil,
+                format: .plain,
+                previewMode: .automatic,
+                previewNotice: nil
+            )
         }
-        cachedFullText = text
-        if let text, !text.isEmpty {
-            cachedFormat = detectContentFormat(text)
-        } else {
-            cachedFormat = .plain
+
+        let byteCount = resolvedText.lengthOfBytes(using: .utf8)
+        if byteCount > originalContentPreviewHardLimitBytes {
+            return PreparedOriginalText(
+                fullText: resolvedText,
+                format: .plain,
+                previewMode: .disabled,
+                previewNotice: "文本较大，已停用富文本预览。"
+            )
         }
+
+        let format = detectContentFormat(resolvedText)
+        if byteCount > originalContentPreviewSoftLimitBytes, format != .plain {
+            return PreparedOriginalText(
+                fullText: resolvedText,
+                format: format,
+                previewMode: .rawSourcePreferred,
+                previewNotice: "文本较大，默认使用源码视图。"
+            )
+        }
+
+        return PreparedOriginalText(
+            fullText: resolvedText,
+            format: format,
+            previewMode: .automatic,
+            previewNotice: nil
+        )
+    }
+
+    private func refreshPreparedText() async {
+        let paragraphTexts = paragraphs.map(\.text)
+        let fullText = content.fullText
+        let prepared = await Task.detached(priority: .utility) {
+            Self.prepareText(
+                paragraphTexts: paragraphTexts,
+                fullText: fullText
+            )
+        }.value
+
+        guard !Task.isCancelled else { return }
+
+        cachedFullText = prepared.fullText
+        cachedFormat = prepared.format
+        richPreviewMode = prepared.previewMode
+        previewNotice = prepared.previewNotice
+        showRawSource = prepared.previewMode != .automatic
+    }
+
+    private var textPreparationToken: String {
+        let paragraphSignature = paragraphs
+            .map { "\($0.anchorID):\($0.text.count)" }
+            .joined(separator: "|")
+        return [
+            content.id,
+            String(content.updatedAt.timeIntervalSince1970),
+            paragraphSignature,
+            String(content.fullText?.count ?? 0),
+        ].joined(separator: "::")
     }
 
     var body: some View {
@@ -112,8 +190,9 @@ struct OriginalContentPanel: View {
         }
         .frame(minWidth: 350, maxWidth: 450)
         .background(.ultraThinMaterial)
-        .onAppear { updateCachedText() }
-        .onChange(of: paragraphs.count) { _, _ in updateCachedText() }
+        .task(id: textPreparationToken) {
+            await refreshPreparedText()
+        }
         .onChange(of: filterAnchors) { _, _ in
             resetRawSourceIfNeeded()
         }
@@ -129,7 +208,7 @@ struct OriginalContentPanel: View {
             Spacer()
 
             // Source/Preview toggle (only for markdown/json in full text mode)
-            if !isTraceMode && cachedFormat != .plain {
+            if !isTraceMode && cachedFormat != .plain && richPreviewMode != .disabled {
                 headerButton(
                     icon: showRawSource ? "doc.richtext" : "chevron.left.forwardslash.chevron.right",
                     tooltip: showRawSource ? "显示预览" : "显示源码"
@@ -229,7 +308,13 @@ struct OriginalContentPanel: View {
             VStack(alignment: .leading, spacing: Theme.space12) {
                 sourceInfoBadge
 
-                if showRawSource || format == .plain {
+                if let previewNotice {
+                    Text(previewNotice)
+                        .font(Theme.captionFont)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+
+                if showRawSource || format == .plain || richPreviewMode == .disabled {
                     // Raw source / plain text
                     Text(text)
                         .font(format == .plain ? Theme.l2Font : .system(size: 12, design: .monospaced))
@@ -327,7 +412,7 @@ private struct MarkdownPreview: View {
 
     @State private var cachedAttributedString: AttributedString?
 
-    private static func parseMarkdown(_ text: String) -> AttributedString {
+    private nonisolated static func parseMarkdown(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
@@ -347,7 +432,11 @@ private struct MarkdownPreview: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .task(id: text) {
-                cachedAttributedString = Self.parseMarkdown(text)
+                let rendered = await Task.detached(priority: .utility) {
+                    Self.parseMarkdown(text)
+                }.value
+                guard !Task.isCancelled else { return }
+                cachedAttributedString = rendered
             }
     }
 }
@@ -359,11 +448,13 @@ private struct JSONPreview: View {
 
     @State private var cachedColorizedJSON: AttributedString?
 
-    private static let jsonTokenRegex: NSRegularExpression? = try? NSRegularExpression(
-        pattern: #"("(?:[^"\\]|\\.)*")\s*:|("(?:[^"\\]|\\.)*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)"#
-    )
+    private nonisolated static func makeJSONTokenRegex() -> NSRegularExpression? {
+        try? NSRegularExpression(
+            pattern: #"("(?:[^"\\]|\\.)*")\s*:|("(?:[^"\\]|\\.)*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)"#
+        )
+    }
 
-    private static func colorize(_ text: String) -> AttributedString {
+    private nonisolated static func colorize(_ text: String) -> AttributedString {
         guard let data = text.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data),
               let pretty = try? JSONSerialization.data(
@@ -380,7 +471,7 @@ private struct JSONPreview: View {
         let nsString = prettyStr as NSString
         var lastEnd = 0
 
-        guard let regex = jsonTokenRegex else {
+        guard let regex = makeJSONTokenRegex() else {
             var plain = AttributedString(prettyStr)
             plain.font = monoFont
             return plain
@@ -450,7 +541,11 @@ private struct JSONPreview: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .task(id: text) {
-                cachedColorizedJSON = Self.colorize(text)
+                let rendered = await Task.detached(priority: .utility) {
+                    Self.colorize(text)
+                }.value
+                guard !Task.isCancelled else { return }
+                cachedColorizedJSON = rendered
             }
     }
 }

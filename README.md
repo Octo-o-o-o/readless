@@ -124,8 +124,11 @@ source venv/bin/activate
 # Install dependencies
 pip install -e ".[dev]"
 
-# Run dev server
+# Run API server
 uvicorn app.main:app --reload
+
+# Run content worker in a second terminal
+python -m app.worker
 
 # Run tests
 pytest tests/
@@ -146,7 +149,7 @@ defaults write com.readless.app apiBaseURL "http://localhost:8000"
 ```bash
 cd backend
 
-# Start services (PostgreSQL + API)
+# Start services (PostgreSQL + API + worker)
 docker compose up -d --build
 
 # View logs

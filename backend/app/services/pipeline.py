@@ -12,7 +12,7 @@ from app.models.content import Content
 from app.models.content_tag import ContentTag
 from app.models.paragraph import Paragraph
 from app.models.user_tag import UserTag
-from app.schemas.summary import ContentSummary
+from app.schemas.summary import ContentSummary, stabilize_outline_points
 from app.services.extractor import ContentExtractor, ExtractedContent
 from app.services.summarizer import SummarizationService
 
@@ -107,6 +107,14 @@ class ProcessingPipeline:
             )
             return None
 
+        if content.status in {"ready", "failed"}:
+            logger.info(
+                "Skipping already terminal content job for %s (%s)",
+                content_id,
+                content.status,
+            )
+            return content
+
         self._mark_content_processing(content)
         await db.commit()
         await db.refresh(content)
@@ -197,11 +205,16 @@ class ProcessingPipeline:
             db=db,
         )
 
+        stable_outline = stabilize_outline_points(
+            summary.l1_outline,
+            content_id=content.id,
+        )
+
         content.title = extracted.title
         content.source_url = extracted.source_url
         content.source_language = detected_language
         content.l0_summary = summary.l0_summary
-        content.l1_outline = [p.model_dump() for p in summary.l1_outline]
+        content.l1_outline = [p.model_dump() for p in stable_outline]
         content.keywords = summary.keywords
         content.full_text = extracted.full_text
         self._mark_content_ready(content)
@@ -286,11 +299,10 @@ class ProcessingPipeline:
             db=db,
             max_outline_points=max_points,
         )
-
-        from app.services.translator import _get_service
-
-        translator = _get_service()
-        detected_language = await translator.detect_language(summary.l0_summary)
+        detected_language = (
+            summary.language_code
+            or self.summarizer._fallback_language_code(extracted.full_text)
+        )
         return summary, detected_language
 
     async def _replace_related_rows(

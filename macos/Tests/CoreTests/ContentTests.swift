@@ -67,6 +67,21 @@ final class ContentTests: XCTestCase {
         XCTAssertEqual(decoded.detail, point.detail)
     }
 
+    func testOutlinePointFallbackIDIsStableWithoutBackendID() throws {
+        let json = """
+        {
+          "point": "Stable point",
+          "anchors": ["¶2", "¶1"]
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let first = try decoder.decode(OutlinePoint.self, from: json)
+        let second = try decoder.decode(OutlinePoint.self, from: json)
+
+        XCTAssertEqual(first.id, second.id)
+    }
+
     func testSourceTypeRawValues() {
         XCTAssertEqual(SourceType.url.rawValue, "url")
         XCTAssertEqual(SourceType.pdf.rawValue, "pdf")

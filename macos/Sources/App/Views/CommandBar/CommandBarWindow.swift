@@ -29,7 +29,6 @@ struct CommandBarWindow: View {
     @State private var query: String = ""
     @State private var service: CommandBarService!
     @State private var clipboardContent: String?
-    @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,13 +132,8 @@ struct CommandBarWindow: View {
             clipboardContent = NSPasteboard.general.string(forType: .string)
         }
         .onChange(of: query) { _, newValue in
-            searchTask?.cancel()
             coordinator.errorMessage = nil
-            searchTask = Task {
-                try? await Task.sleep(for: .milliseconds(150))
-                guard !Task.isCancelled else { return }
-                service.search(newValue)
-            }
+            service.search(newValue)
         }
         .onChange(of: coordinator.isCommandBarVisible) { oldValue, newValue in
             if newValue {

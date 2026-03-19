@@ -192,6 +192,7 @@ final class ContentManager {
             upsertContent(updatedContent)
             try? await repository.cacheContent(updatedContent, userId: currentUserId)
             startTrackingIfNeeded(updatedContent, behavior: .background)
+            notifyContentUpdated(updatedContent)
             error = nil
         } catch {
             self.error = error
@@ -265,10 +266,22 @@ final class ContentManager {
             processingContent = content
         }
         error = nil
+        notifyContentUpdated(content)
+    }
+
+    func trackContentIfNeeded(_ content: Content) {
+        startTrackingIfNeeded(content, behavior: .background)
+    }
+
+    private func notifyContentUpdated(_ content: Content) {
+        NotificationCenter.default.post(name: .contentDidUpdate, object: content)
     }
 
     private func makeImportTracker() -> ImportTrackingCoordinator {
         ImportTrackingCoordinator(
+            fetchStatuses: { [repository] contentIDs in
+                try await repository.fetchContentStatuses(ids: contentIDs)
+            },
             fetchContent: { [repository] contentID in
                 try await repository.fetchContent(id: contentID)
             },
@@ -327,4 +340,5 @@ final class ContentManager {
 
 extension Notification.Name {
     static let showToast = Notification.Name("showToast")
+    static let contentDidUpdate = Notification.Name("contentDidUpdate")
 }

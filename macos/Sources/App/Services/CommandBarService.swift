@@ -73,7 +73,7 @@ final class CommandBarService {
 
         // Debounce 300ms
         searchTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(180))
 
             guard !Task.isCancelled else { return }
 
@@ -161,9 +161,9 @@ final class CommandBarService {
     /// Cloud-based AI search (PostgreSQL FTS + OpenAI)
     private func performCloudSearch(_ query: String) async {
         do {
-            let result = try await apiClient.search(query: query)
+            let sources = try await apiClient.searchRetrieve(query: query)
 
-            if result.sources.isEmpty {
+            if sources.isEmpty {
                 // No results - suggest importing as new content
                 aiCoordinator.commandResults = [
                     CommandResult(
@@ -175,8 +175,7 @@ final class CommandBarService {
                     }
                 ]
             } else {
-                // Show AI answer + sources
-                aiCoordinator.commandResults = result.sources.prefix(10).map { source in
+                aiCoordinator.commandResults = sources.prefix(10).map { source in
                     CommandResult(
                         title: source.title,
                         subtitle: source.l0Summary ?? "Click to open",

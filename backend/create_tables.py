@@ -6,6 +6,7 @@ import asyncio
 from app.database import Base, get_engine
 
 # Import all models to register them with Base.metadata
+import app.models  # noqa: F401
 
 
 async def create_tables():

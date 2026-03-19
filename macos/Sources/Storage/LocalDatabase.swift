@@ -191,11 +191,16 @@ public final class LocalDatabase {
     /// If userId is provided, it will be set on the content before saving.
     public func saveContent(_ content: Content, userId: String? = nil) async throws {
         try await dbQueue.write { db in
-            var mutableContent = content
-            if let userId = userId {
-                mutableContent.userId = userId
+            let existingRecord = try ContentRecord.fetchOne(db, key: content.id)
+            let mergedRecord = ContentRecord(
+                merging: content,
+                existing: existingRecord,
+                userId: userId
+            )
+            guard existingRecord != mergedRecord else {
+                return
             }
-            try ContentRecord(from: mutableContent).save(db)
+            try mergedRecord.save(db)
         }
     }
 
@@ -203,12 +208,25 @@ public final class LocalDatabase {
     public func saveContents(_ contents: [Content], userId: String? = nil) async throws {
         guard !contents.isEmpty else { return }
         try await dbQueue.write { db in
+            let contentIDs = contents.map(\.id)
+            let existingRecords = try ContentRecord
+                .filter(contentIDs.contains(Column("id")))
+                .fetchAll(db)
+            let existingByID = Dictionary(
+                uniqueKeysWithValues: existingRecords.map { ($0.id, $0) }
+            )
+
             for content in contents {
-                var mutableContent = content
-                if let userId = userId {
-                    mutableContent.userId = userId
+                let existingRecord = existingByID[content.id]
+                let mergedRecord = ContentRecord(
+                    merging: content,
+                    existing: existingRecord,
+                    userId: userId
+                )
+                guard existingRecord != mergedRecord else {
+                    continue
                 }
-                try ContentRecord(from: mutableContent).save(db)
+                try mergedRecord.save(db)
             }
         }
     }

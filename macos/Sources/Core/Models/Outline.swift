@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // MARK: - Outline Point
 
@@ -17,9 +18,10 @@ public struct OutlinePoint: Identifiable, Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         self.point = try container.decode(String.self, forKey: .point)
         self.anchors = try container.decodeIfPresent([String].self, forKey: .anchors) ?? []
+        self.id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? Self.fallbackID(point: point, anchors: anchors)
         self.expanded = try container.decodeIfPresent(Bool.self, forKey: .expanded) ?? false
         self.detail = try container.decodeIfPresent(String.self, forKey: .detail)
     }
@@ -34,7 +36,20 @@ public struct OutlinePoint: Identifiable, Codable, Sendable, Equatable {
     }
 
     public init(
-        id: String = UUID().uuidString,
+        point: String,
+        anchors: [String] = [],
+        expanded: Bool = false,
+        detail: String? = nil
+    ) {
+        self.id = Self.fallbackID(point: point, anchors: anchors)
+        self.point = point
+        self.anchors = anchors
+        self.expanded = expanded
+        self.detail = detail
+    }
+
+    public init(
+        id: String,
         point: String,
         anchors: [String] = [],
         expanded: Bool = false,
@@ -45,5 +60,15 @@ public struct OutlinePoint: Identifiable, Codable, Sendable, Equatable {
         self.anchors = anchors
         self.expanded = expanded
         self.detail = detail
+    }
+
+    private static func fallbackID(point: String, anchors: [String]) -> String {
+        let normalizedAnchors = anchors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .sorted()
+            .joined(separator: "|")
+        let stableInput = "\(point.trimmingCharacters(in: .whitespacesAndNewlines))\n\(normalizedAnchors)"
+        let digest = SHA256.hash(data: Data(stableInput.utf8))
+        let hex = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+        return "outline_\(hex)"
     }
 }

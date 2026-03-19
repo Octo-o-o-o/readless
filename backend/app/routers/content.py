@@ -1,6 +1,5 @@
 """REST API routes for content CRUD, expand, and follow-up Q&A."""
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,15 +10,18 @@ from app.auth import get_current_user_id
 from app.config import settings
 from app.database import get_db
 from app.models.content import Content
+from app.models.content_job import ContentJob
 from app.models.paragraph import Paragraph
 from app.schemas.content import (
     ContentCreateRequest,
+    ContentListItemResponse,
     ContentResponse,
+    ContentStatusResponse,
     ExpandRequest,
     FollowUpRequest,
     TextResponse,
 )
-from app.schemas.summary import ContentSummary, OutlinePoint
+from app.schemas.summary import ContentSummary, OutlinePoint, stabilize_outline_points
 from app.services.content_jobs import ContentJobService, get_content_job_service
 from app.services.content_response import (
     ContentResponseBuilder,
@@ -37,9 +39,6 @@ _pipeline: ProcessingPipeline | None = None
 _summarizer: SummarizationService | None = None
 _content_jobs: ContentJobService | None = None
 _content_response_builder: ContentResponseBuilder | None = None
-_processing_tasks: dict[str, asyncio.Task[None]] = (
-    get_content_job_service().processing_tasks
-)
 
 
 def _get_pipeline() -> ProcessingPipeline:
@@ -70,34 +69,20 @@ def _get_response_builder() -> ContentResponseBuilder:
     return _content_response_builder
 
 
-def _schedule_content_processing(
+async def _schedule_content_processing(
     *,
     content_id: str,
     source_type: str,
     body: str,
     user_id: str,
+    db: AsyncSession,
 ) -> None:
-    _get_content_jobs().schedule_processing(
+    await _get_content_jobs().enqueue_processing(
         content_id=content_id,
         source_type=source_type,
         body=body,
         user_id=user_id,
-        processor=_process_content_in_background,
-    )
-
-
-async def _process_content_in_background(
-    *,
-    content_id: str,
-    source_type: str,
-    body: str,
-    user_id: str,
-) -> None:
-    await _get_content_jobs().process_content_in_background(
-        content_id=content_id,
-        source_type=source_type,
-        body=body,
-        user_id=user_id,
+        db=db,
     )
 
 
@@ -125,25 +110,26 @@ async def create_content(
         channel=req.channel,
         db=db,
     )
-    await db.commit()
-    await db.refresh(content)
-    _schedule_content_processing(
+    await _schedule_content_processing(
         content_id=content.id,
         source_type=req.source_type,
         body=req.body,
         user_id=user_id,
+        db=db,
     )
+    await db.commit()
+    await db.refresh(content)
     return await _to_response(content, db)
 
 
-@router.get("/", response_model=list[ContentResponse])
+@router.get("/", response_model=list[ContentListItemResponse])
 async def list_contents(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     skip: int | None = Query(default=None, ge=0),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
-) -> list[ContentResponse]:
+) -> list[ContentListItemResponse]:
     """List all contents for the current user with pagination."""
     if skip is not None:
         # Backward-compatibility for older clients still sending `skip`.
@@ -166,21 +152,85 @@ async def list_contents(
     response_builder = _get_response_builder()
     content_ids = [content.id for content in contents]
     tags_by_content = await response_builder.get_tags_by_content_ids(content_ids, db)
+    jobs_by_content = await _get_content_jobs().get_jobs_by_content_ids(content_ids, db)
 
-    any_status_updated = False
-    responses: list[ContentResponse] = []
+    any_state_updated = False
+    responses: list[ContentListItemResponse] = []
     for content in contents:
-        if _mark_stale_content_as_failed(content):
-            any_status_updated = True
-        _schedule_content_recovery(content)
+        job, job_changed = await _schedule_content_recovery(
+            content,
+            db=db,
+            job=jobs_by_content.get(content.id),
+        )
+        if job is not None:
+            jobs_by_content[content.id] = job
+        if job_changed:
+            any_state_updated = True
+        if _mark_stale_content_as_failed(content, jobs_by_content.get(content.id)):
+            any_state_updated = True
         responses.append(
-            response_builder.build_with_tags(
+            response_builder.build_list_item_with_tags(
                 content,
                 tags_by_content.get(content.id, []),
             )
         )
 
-    if any_status_updated:
+    if any_state_updated:
+        await db.commit()
+
+    return responses
+
+
+@router.get("/statuses", response_model=list[ContentStatusResponse])
+async def list_content_statuses(
+    ids: list[str] = Query(...),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[ContentStatusResponse]:
+    """Fetch lightweight processing statuses for the requested content IDs."""
+    requested_ids = list(dict.fromkeys(ids))
+    if not requested_ids:
+        return []
+
+    stmt = select(Content).where(
+        Content.user_id == user_id,
+        Content.id.in_(requested_ids),
+    )
+    result = await db.execute(stmt)
+    contents_by_id = {content.id: content for content in result.scalars().all()}
+    jobs_by_content = await _get_content_jobs().get_jobs_by_content_ids(
+        requested_ids,
+        db,
+    )
+
+    any_state_updated = False
+    responses: list[ContentStatusResponse] = []
+    for content_id in requested_ids:
+        content = contents_by_id.get(content_id)
+        if content is None:
+            continue
+        job, job_changed = await _schedule_content_recovery(
+            content,
+            db=db,
+            job=jobs_by_content.get(content.id),
+        )
+        if job is not None:
+            jobs_by_content[content.id] = job
+        if job_changed:
+            any_state_updated = True
+        if _mark_stale_content_as_failed(content, jobs_by_content.get(content.id)):
+            any_state_updated = True
+        responses.append(
+            ContentStatusResponse(
+                id=content.id,
+                status=content.status,
+                updated_at=content.updated_at,
+                l0_summary=content.l0_summary,
+                processing_error=content.processing_error,
+            )
+        )
+
+    if any_state_updated:
         await db.commit()
 
     return responses
@@ -197,9 +247,11 @@ async def get_content(
     if not content or content.user_id != user_id:
         raise HTTPException(404, "Content not found")
 
-    if _mark_stale_content_as_failed(content):
+    job, job_changed = await _schedule_content_recovery(content, db=db)
+    if _mark_stale_content_as_failed(content, job):
         await db.commit()
-    _schedule_content_recovery(content)
+    elif job_changed:
+        await db.commit()
     return await _to_response(content, db)
 
 
@@ -325,9 +377,13 @@ async def translate_content(
     # Build current summary from content
     current_summary = ContentSummary(
         l0_summary=content.l0_summary,
-        l1_outline=[OutlinePoint(**item) for item in content.l1_outline],
+        l1_outline=stabilize_outline_points(
+            [OutlinePoint(**item) for item in content.l1_outline],
+            content_id=content.id,
+        ),
         tags=tags,
         keywords=content.keywords or [],
+        language_code=content.source_language,
     )
 
     # Translate summary
@@ -336,6 +392,10 @@ async def translate_content(
         summary=current_summary,
         target_lang=target_language,
         source_lang=content.source_language,
+    )
+    translated_outline = stabilize_outline_points(
+        translated_summary.l1_outline,
+        content_id=content.id,
     )
 
     # Return translated content response (don't modify DB)
@@ -348,7 +408,7 @@ async def translate_content(
         source_app_bundle_id=content.source_app_bundle_id,
         source_language=content.source_language,  # Keep original language
         l0_summary=translated_summary.l0_summary,
-        l1_outline=[p.model_dump() for p in translated_summary.l1_outline],
+        l1_outline=[p.model_dump() for p in translated_outline],
         tags=tags,
         status=content.status,
         created_at=content.created_at,
@@ -359,7 +419,7 @@ async def translate_content(
 
 async def _to_response(c: Content, db: AsyncSession) -> ContentResponse:
     """Compatibility helper for tests and route-local callers."""
-    return await _get_response_builder().build(c, db)
+    return await _get_response_builder().build_detail(c, db)
 
 
 def _ensure_content_ready(content: Content) -> None:
@@ -370,18 +430,14 @@ def _ensure_content_ready(content: Content) -> None:
         raise HTTPException(409, "Content is still processing")
 
 
-def _schedule_content_recovery(content: Content) -> None:
-    """Best-effort replay for recoverable async jobs after process restarts."""
-    if content.status not in {"pending", "processing"}:
-        return
-
-    if body := _recoverable_content_body(content):
-        _schedule_content_processing(
-            content_id=content.id,
-            source_type=content.source_type,
-            body=body,
-            user_id=content.user_id,
-        )
+async def _schedule_content_recovery(
+    content: Content,
+    *,
+    db: AsyncSession,
+    job: ContentJob | None = None,
+) -> tuple[ContentJob | None, bool]:
+    """Recreate missing queue rows for recoverable legacy content."""
+    return await _get_content_jobs().ensure_content_job(content, db=db, job=job)
 
 
 def _recoverable_content_body(content: Content) -> str | None:
@@ -389,8 +445,11 @@ def _recoverable_content_body(content: Content) -> str | None:
     return _get_content_jobs().recoverable_content_body(content)
 
 
-def _mark_stale_content_as_failed(content: Content) -> bool:
+def _mark_stale_content_as_failed(
+    content: Content,
+    job: ContentJob | None = None,
+) -> bool:
     """Prevent permanently stuck states when processing exceeds timeout."""
     if settings.content_processing_timeout_seconds <= 0:
         return False
-    return _get_content_jobs().mark_stale_content_as_failed(content)
+    return _get_content_jobs().mark_stale_content_as_failed(content, job)

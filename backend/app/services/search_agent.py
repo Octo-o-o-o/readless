@@ -51,6 +51,27 @@ class SearchAgent:
 
         return answer
 
+    async def retrieve(self, query: str, user_id: str, db: AsyncSession) -> list[dict]:
+        """Execute lightweight retrieval for interactive search suggestions."""
+        trimmed_query = query.strip()
+        if not trimmed_query:
+            return []
+
+        candidates = await self._search_index(
+            self._basic_intent(trimmed_query),
+            user_id,
+            db,
+        )
+        return self._serialize_sources(candidates, limit=10)
+
+    def _basic_intent(self, query: str) -> dict:
+        terms = [term for term in re.split(r"\s+", query) if term]
+        return {
+            "search_terms": terms[:8],
+            "time_filter": None,
+            "source_type": None,
+        }
+
     async def _parse_intent(self, query: str) -> dict:
         """Use AI to parse a natural-language query into structured intent."""
         message = await self.client.chat.completions.create(
@@ -83,7 +104,7 @@ JSON only.""",
         query_str = " ".join(terms) if terms else ""
 
         sql = """
-            SELECT *,
+            SELECT id, title, l0_summary, l1_outline, source_url, created_at,
                 ts_rank_cd(full_text_tsv,
                     websearch_to_tsquery('simple', :query)
                 ) AS rank
@@ -107,7 +128,14 @@ JSON only.""",
         # Fallback: if FTS returns nothing, try keyword match or tag join
         if not rows and terms:
             tag_sql = """
-                SELECT DISTINCT c.* FROM contents c
+                SELECT DISTINCT
+                    c.id,
+                    c.title,
+                    c.l0_summary,
+                    c.l1_outline,
+                    c.source_url,
+                    c.created_at
+                FROM contents c
                 LEFT JOIN content_tags ct ON c.id = ct.content_id
                 LEFT JOIN user_tags ut ON ct.tag_id = ut.id
                 WHERE c.user_id = :user_id
@@ -180,13 +208,16 @@ If no source answers the question, say so.""",
         )
         return {
             "answer": message.choices[0].message.content or "No answer generated.",
-            "sources": [
-                {
-                    "id": s.id,
-                    "title": s.title,
-                    "l0_summary": s.l0_summary,
-                    "source_url": s.source_url,
-                }
-                for s in sources[:5]
-            ],
+            "sources": self._serialize_sources(sources, limit=5),
         }
+
+    def _serialize_sources(self, sources: list, limit: int) -> list[dict]:
+        return [
+            {
+                "id": source.id,
+                "title": source.title,
+                "l0_summary": source.l0_summary,
+                "source_url": source.source_url,
+            }
+            for source in sources[:limit]
+        ]

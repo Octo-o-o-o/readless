@@ -25,6 +25,24 @@ class SearchRequest(BaseModel):
     query: str
 
 
+class SearchSourceResponse(BaseModel):
+    id: str
+    title: str
+    l0_summary: str | None = None
+    source_url: str | None = None
+
+
+@router.post("/retrieve", response_model=list[SearchSourceResponse])
+async def retrieve(
+    req: SearchRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return lightweight search candidates for interactive suggestion UIs."""
+    agent = _get_agent()
+    return await agent.retrieve(req.query, user_id, db)
+
+
 @router.post("/")
 async def search(
     req: SearchRequest,

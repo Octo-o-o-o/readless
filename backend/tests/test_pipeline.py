@@ -4,12 +4,12 @@ These tests require NO database, NO API keys, and NO network access.
 They verify schema validation, structural correctness, and route registration.
 """
 
-import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
 from app.schemas.content import (
     ContentCreateRequest,
@@ -316,58 +316,61 @@ async def test_create_content_route_returns_pending_and_schedules_background_job
     mock_db = AsyncMock()
 
     with patch("app.routers.content._get_pipeline", return_value=mock_pipeline):
-        with patch(
-            "app.routers.content._to_response",
-            AsyncMock(return_value=response),
-        ):
-            with patch("app.routers.content._schedule_content_processing") as schedule:
-                result = await create_content(req=req, db=mock_db, user_id="user-123")
+            with patch(
+                "app.routers.content._to_response",
+                AsyncMock(return_value=response),
+            ):
+                with patch(
+                    "app.routers.content._schedule_content_processing",
+                    AsyncMock(),
+                ) as schedule:
+                    result = await create_content(
+                        req=req,
+                        db=mock_db,
+                        user_id="user-123",
+                    )
 
     assert result.status == "pending"
     mock_pipeline.create_pending_content.assert_awaited_once()
     mock_db.commit.assert_awaited_once()
     mock_db.refresh.assert_awaited_once_with(pending)
-    schedule.assert_called_once_with(
+    schedule.assert_awaited_once_with(
         content_id="content-123",
         source_type="text",
         body="Hello world",
         user_id="user-123",
+        db=mock_db,
     )
 
 
 @pytest.mark.asyncio
-async def test_schedule_content_processing_deduplicates_active_jobs():
-    """Scheduler should not enqueue the same content twice in one process."""
+async def test_schedule_content_processing_upserts_single_database_job(db_session):
+    """Scheduler should reuse one queue row per content item."""
+    from app.models.content_job import ContentJob
     from app.routers import content as content_router
 
-    async def fake_process(**_: str) -> None:
-        await asyncio.sleep(0)
+    user_id = str(uuid4())
 
-    content_router._processing_tasks.clear()
+    await content_router._schedule_content_processing(
+        content_id="content-123",
+        source_type="text",
+        body="Hello world",
+        user_id=user_id,
+        db=db_session,
+    )
+    await content_router._schedule_content_processing(
+        content_id="content-123",
+        source_type="text",
+        body="Hello world",
+        user_id=user_id,
+        db=db_session,
+    )
+    await db_session.commit()
 
-    with patch.object(
-        content_router,
-        "_process_content_in_background",
-        side_effect=fake_process,
-    ) as process:
-        content_router._schedule_content_processing(
-            content_id="content-123",
-            source_type="text",
-            body="Hello world",
-            user_id="user-123",
-        )
-        content_router._schedule_content_processing(
-            content_id="content-123",
-            source_type="text",
-            body="Hello world",
-            user_id="user-123",
-        )
-
-        await content_router._processing_tasks["content-123"]
-        await asyncio.sleep(0)
-
-    assert process.await_count == 1
-    assert content_router._processing_tasks == {}
+    rows = (await db_session.execute(select(ContentJob))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].content_id == "content-123"
+    assert rows[0].status == "queued"
 
 
 # ------------------------------------------------------------------ #
@@ -509,14 +512,9 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
     with patch.object(
         pipeline.extractor, "extract_text", extract_mock
     ):
-        mock_summarizer = AsyncMock()
+        mock_summarizer = MagicMock()
         mock_summarizer.generate_summary = AsyncMock(
             return_value=mock_summary
-        )
-
-        mock_translator = AsyncMock()
-        mock_translator.detect_language = AsyncMock(
-            return_value="en"
         )
 
         summarizer_prop = property(
@@ -525,41 +523,37 @@ async def test_process_content_saves_tags_to_content_tags_table(db_session):
         with patch.object(
             type(pipeline), "summarizer", summarizer_prop
         ):
-            with patch(
-                "app.services.translator._get_service",
-                return_value=mock_translator,
+            with patch.object(
+                db_session, "add", side_effect=mock_add
             ):
                 with patch.object(
-                    db_session, "add", side_effect=mock_add
+                    db_session,
+                    "execute",
+                    side_effect=mock_execute,
                 ):
-                    with patch.object(
-                        db_session,
-                        "execute",
-                        side_effect=mock_execute,
-                    ):
-                        with db_session.no_autoflush:
+                    with db_session.no_autoflush:
+                        with patch.object(
+                            db_session,
+                            "flush",
+                            AsyncMock(),
+                        ):
                             with patch.object(
                                 db_session,
-                                "flush",
+                                "commit",
                                 AsyncMock(),
                             ):
                                 with patch.object(
                                     db_session,
-                                    "commit",
+                                    "refresh",
                                     AsyncMock(),
                                 ):
-                                    with patch.object(
-                                        db_session,
-                                        "refresh",
-                                        AsyncMock(),
-                                    ):
-                                        # Process content
-                                        await pipeline.process(
-                                            source_type="text",
-                                            body=long_text,
-                                            user_id=test_user_id,
-                                            db=db_session,
-                                        )
+                                    # Process content
+                                    await pipeline.process(
+                                        source_type="text",
+                                        body=long_text,
+                                        user_id=test_user_id,
+                                        db=db_session,
+                                    )
 
     # Verify content_tags were added
     assert len(added_content_tags) == 2, (
@@ -655,14 +649,9 @@ async def test_process_content_skips_nonexistent_tags(db_session):
     with patch.object(
         pipeline.extractor, "extract_text", extract_mock
     ):
-        mock_summarizer = AsyncMock()
+        mock_summarizer = MagicMock()
         mock_summarizer.generate_summary = AsyncMock(
             return_value=mock_summary
-        )
-
-        mock_translator = AsyncMock()
-        mock_translator.detect_language = AsyncMock(
-            return_value="en"
         )
 
         summarizer_prop = property(
@@ -671,41 +660,37 @@ async def test_process_content_skips_nonexistent_tags(db_session):
         with patch.object(
             type(pipeline), "summarizer", summarizer_prop
         ):
-            with patch(
-                "app.services.translator._get_service",
-                return_value=mock_translator,
+            with patch.object(
+                db_session, "add", side_effect=mock_add
             ):
                 with patch.object(
-                    db_session, "add", side_effect=mock_add
+                    db_session,
+                    "execute",
+                    side_effect=mock_execute,
                 ):
-                    with patch.object(
-                        db_session,
-                        "execute",
-                        side_effect=mock_execute,
-                    ):
-                        with db_session.no_autoflush:
+                    with db_session.no_autoflush:
+                        with patch.object(
+                            db_session,
+                            "flush",
+                            AsyncMock(),
+                        ):
                             with patch.object(
                                 db_session,
-                                "flush",
+                                "commit",
                                 AsyncMock(),
                             ):
                                 with patch.object(
                                     db_session,
-                                    "commit",
+                                    "refresh",
                                     AsyncMock(),
                                 ):
-                                    with patch.object(
-                                        db_session,
-                                        "refresh",
-                                        AsyncMock(),
-                                    ):
-                                        # Process content
-                                        await pipeline.process(
-                                            source_type="text",
-                                            body=long_text,
-                                            user_id=test_user_id,
-                                            db=db_session,
-                                        )
+                                    # Process content
+                                    await pipeline.process(
+                                        source_type="text",
+                                        body=long_text,
+                                        user_id=test_user_id,
+                                        db=db_session,
+                                    )
 
     # Verify only ONE content_tag was created
     assert len(added_content_tags) == 1, (

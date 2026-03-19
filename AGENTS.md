@@ -49,8 +49,9 @@ Only needed for backend development or offline testing.
 ```bash
 cd backend
 pip install -e ".[dev]"               # Install dependencies
-uvicorn app.main:app --reload          # Run dev server (http://localhost:8000)
-docker-compose up -d --build           # Run with Docker (includes PostgreSQL)
+uvicorn app.main:app --reload          # Run API server (http://localhost:8000)
+python -m app.worker                   # Run content worker in a second terminal
+docker-compose up -d --build           # Run with Docker (includes PostgreSQL + worker)
 docker-compose exec api alembic upgrade head  # Run DB migrations
 
 # Configure macOS app to use localhost

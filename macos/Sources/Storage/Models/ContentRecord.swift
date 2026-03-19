@@ -4,7 +4,7 @@ import Core
 
 /// ContentRecord is the GRDB persistence layer for Content.
 /// It handles serialization of complex fields (outline, tags) to JSON/Data.
-struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
+struct ContentRecord: Codable, Equatable, FetchableRecord, PersistableRecord {
     var id: String
     var title: String
     var sourceURL: String?
@@ -85,6 +85,21 @@ struct ContentRecord: Codable, FetchableRecord, PersistableRecord {
         self.podcastURL = content.podcastURL
         self.fullText = content.fullText
         self.userId = content.userId
+    }
+
+    init(
+        merging content: Content,
+        existing: ContentRecord? = nil,
+        userId: String? = nil
+    ) {
+        self.init(from: content)
+        self.syncedAt = existing?.syncedAt
+        self.isFavorite = existing?.isFavorite ?? false
+        self.fullText = content.fullText ?? existing?.fullText
+        self.l1OutlineData = self.l1OutlineData ?? existing?.l1OutlineData
+        self.tagsData = self.tagsData ?? existing?.tagsData
+        self.podcastURL = self.podcastURL ?? existing?.podcastURL
+        self.userId = userId ?? content.userId ?? existing?.userId
     }
 
     // MARK: - Conversion to Content

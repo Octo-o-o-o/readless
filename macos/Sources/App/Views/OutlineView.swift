@@ -188,7 +188,7 @@ private struct DetailTextView: View {
 
     @State private var cachedAttributedText: AttributedString?
 
-    private static func buildAttributedText(from text: String) -> AttributedString {
+    private nonisolated static func buildAttributedText(from text: String) -> AttributedString {
         let segments = parseSegments(text)
         var attrString = AttributedString()
         for segment in segments {
@@ -213,7 +213,11 @@ private struct DetailTextView: View {
     var body: some View {
         Text(cachedAttributedText ?? AttributedString(text))
             .task(id: text) {
-                cachedAttributedText = Self.buildAttributedText(from: text)
+                let rendered = await Task.detached(priority: .utility) {
+                    Self.buildAttributedText(from: text)
+                }.value
+                guard !Task.isCancelled else { return }
+                cachedAttributedText = rendered
             }
             .lineSpacing(6)
             .environment(\.openURL, OpenURLAction { url in
@@ -234,11 +238,13 @@ private struct DetailTextView: View {
         case citation(String)
     }
 
-    private static let citationRegex: NSRegularExpression? = try? NSRegularExpression(pattern: #"\[¶\d+\]"#)
+    private nonisolated static func makeCitationRegex() -> NSRegularExpression? {
+        try? NSRegularExpression(pattern: #"\[¶\d+\]"#)
+    }
 
     /// Parse detail text into plain text and [¶N] citations.
     /// Also strips markdown headers and bold markers for clean display.
-    static func parseSegments(_ text: String) -> [Segment] {
+    private nonisolated static func parseSegments(_ text: String) -> [Segment] {
         // Clean markdown: strip ## headers and ** bold markers
         var cleaned = text
         // Remove markdown headers (## text → text)
@@ -259,7 +265,7 @@ private struct DetailTextView: View {
         cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var segments: [Segment] = []
-        guard let regex = citationRegex else {
+        guard let regex = makeCitationRegex() else {
             return [.plain(cleaned)]
         }
 

@@ -10,8 +10,11 @@ AI驱动的读后整理与知识库系统 - 后端服务
 # 安装依赖
 pip install -e ".[dev]"
 
-# 启动服务
+# 启动 API
 uvicorn app.main:app --reload
+
+# 在第二个终端启动导入 worker
+python -m app.worker
 
 # 访问API文档
 open http://localhost:8000/docs
@@ -204,7 +207,7 @@ docker-compose restart
 # 停止服务
 docker-compose down
 
-# 重新构建
+# 重新构建（包含 worker）
 docker-compose up -d --build
 
 # 查看容器状态

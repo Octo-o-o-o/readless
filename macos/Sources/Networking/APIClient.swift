@@ -217,6 +217,16 @@ public final class APIClient: @unchecked Sendable {
         return try JSONDecoder.apiDecoder.decode([Content].self, from: data)
     }
 
+    /// Fetch lightweight processing statuses for a batch of content IDs.
+    public func fetchContentStatuses(ids: [String]) async throws -> [ContentStatusSnapshot] {
+        guard !ids.isEmpty else { return [] }
+        let query = ids
+            .map { "ids=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)" }
+            .joined(separator: "&")
+        let data = try await request("/api/v1/content/statuses?\(query)")
+        return try JSONDecoder.apiDecoder.decode([ContentStatusSnapshot].self, from: data)
+    }
+
     /// Expand a specific outline point for a given content item.
     public func expandPoint(contentID: String, pointIndex: Int) async throws -> String {
         struct Req: Encodable { let point_index: Int }
@@ -266,6 +276,14 @@ public final class APIClient: @unchecked Sendable {
         let payload = try JSONEncoder().encode(Req(query: query))
         let data = try await request("/api/v1/search/", method: "POST", body: payload)
         return try JSONDecoder.apiDecoder.decode(SearchResult.self, from: data)
+    }
+
+    /// Retrieve lightweight search candidates for interactive suggestion UIs.
+    public func searchRetrieve(query: String) async throws -> [SearchSource] {
+        struct Req: Encodable { let query: String }
+        let payload = try JSONEncoder().encode(Req(query: query))
+        let data = try await request("/api/v1/search/retrieve", method: "POST", body: payload)
+        return try JSONDecoder.apiDecoder.decode([SearchSource].self, from: data)
     }
 
     // MARK: - Tag Endpoints
@@ -353,6 +371,35 @@ public struct ParagraphResponse: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case anchorID = "anchor_id"
         case text, position
+    }
+}
+
+public struct ContentStatusSnapshot: Codable, Sendable {
+    public let id: String
+    public let status: ContentStatus
+    public let updatedAt: Date?
+    public let l0Summary: String?
+    public let processingError: String?
+
+    public init(
+        id: String,
+        status: ContentStatus,
+        updatedAt: Date?,
+        l0Summary: String?,
+        processingError: String?
+    ) {
+        self.id = id
+        self.status = status
+        self.updatedAt = updatedAt
+        self.l0Summary = l0Summary
+        self.processingError = processingError
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, status
+        case updatedAt = "updated_at"
+        case l0Summary = "l0_summary"
+        case processingError = "processing_error"
     }
 }
 

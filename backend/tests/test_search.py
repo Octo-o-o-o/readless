@@ -74,6 +74,12 @@ class TestSearchAgentStructure:
         assert hasattr(SearchAgent, "search")
         assert callable(getattr(SearchAgent, "search"))
 
+    def test_has_retrieve_method(self) -> None:
+        from app.services.search_agent import SearchAgent
+
+        assert hasattr(SearchAgent, "retrieve")
+        assert callable(getattr(SearchAgent, "retrieve"))
+
     def test_has_parse_intent_method(self) -> None:
         from app.services.search_agent import SearchAgent
 
@@ -123,6 +129,7 @@ class TestSearchRouterRegistration:
 
         paths = [route.path for route in app.routes]
         assert "/api/v1/search/" in paths
+        assert "/api/v1/search/retrieve" in paths
 
     def test_search_post_route_exists(self) -> None:
         from app.main import app
@@ -133,6 +140,18 @@ class TestSearchRouterRegistration:
             if hasattr(route, "methods")
             and "POST" in route.methods
             and route.path == "/api/v1/search/"
+        ]
+        assert len(post_routes) == 1
+
+    def test_search_retrieve_post_route_exists(self) -> None:
+        from app.main import app
+
+        post_routes = [
+            route
+            for route in app.routes
+            if hasattr(route, "methods")
+            and "POST" in route.methods
+            and route.path == "/api/v1/search/retrieve"
         ]
         assert len(post_routes) == 1
 

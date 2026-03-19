@@ -15,8 +15,8 @@ class ContentCreateRequest(BaseModel):
     channel: str = "manual"
 
 
-class ContentResponse(BaseModel):
-    """Response model for content items."""
+class ContentListItemResponse(BaseModel):
+    """Lightweight response model for content list items."""
 
     id: str
     title: str
@@ -26,13 +26,28 @@ class ContentResponse(BaseModel):
     source_app_bundle_id: str | None = None
     source_language: str | None = None
     l0_summary: str | None
-    l1_outline: list[dict] | None
+    l1_outline: list[dict] | None = None
     tags: list[str] | None
     status: str
     created_at: datetime
     updated_at: datetime | None = None
     podcast_url: str | None = None
+
+
+class ContentResponse(ContentListItemResponse):
+    """Detailed response model for a single content item."""
+
     full_text: str | None = None  # For local search sync
+
+
+class ContentStatusResponse(BaseModel):
+    """Minimal response model for polling content processing state."""
+
+    id: str
+    status: str
+    updated_at: datetime | None = None
+    l0_summary: str | None = None
+    processing_error: str | None = None
 
 
 class ExpandRequest(BaseModel):

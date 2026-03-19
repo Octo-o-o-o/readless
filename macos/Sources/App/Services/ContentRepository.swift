@@ -41,6 +41,10 @@ final class ContentRepository {
         try await api.fetchContent(id: id)
     }
 
+    func fetchContentStatuses(ids: [String]) async throws -> [ContentStatusSnapshot] {
+        try await api.fetchContentStatuses(ids: ids)
+    }
+
     func fetchCachedContent(id: String, userId: String? = nil) async throws -> Content? {
         try await database.fetchContent(id: id, userId: userId)
     }

@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     disable_auth: bool = False  # Set to True to disable authentication (dev only)
     content_processing_concurrency: int = 2
     content_processing_timeout_seconds: int = 1800
+    content_job_poll_interval_seconds: float = 1.0
 
 
 settings = Settings()
