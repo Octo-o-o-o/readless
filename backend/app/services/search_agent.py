@@ -93,8 +93,11 @@ JSON only.""",
         )
         raw = message.choices[0].message.content
         if not raw:
-            return {"search_terms": [], "time_filter": None, "source_type": None}
-        return json.loads(_strip_code_fences(raw))
+            return self._basic_intent(query)
+        try:
+            return json.loads(_strip_code_fences(raw))
+        except (json.JSONDecodeError, ValueError):
+            return self._basic_intent(query)
 
     async def _search_index(
         self, intent: dict, user_id: str, db: AsyncSession

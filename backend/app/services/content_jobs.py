@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from app.services.pipeline import (
     ProcessingPipeline,
     truncate_processing_error,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -194,7 +197,12 @@ class ContentJobService:
         try:
             await self._process_claimed_job(claimed_job)
         except Exception as exc:  # pragma: no cover - defensive safety net
-            await self._fail_claimed_job(claimed_job, error=exc)
+            try:
+                await self._fail_claimed_job(claimed_job, error=exc)
+            except Exception:  # pragma: no cover
+                logger.exception(
+                    "Failed to record failure for job %s", claimed_job.id
+                )
         return True
 
     async def _claim_next_job(self) -> ClaimedContentJob | None:
