@@ -107,12 +107,40 @@ See [DEPLOYMENT-RESULT.md](DEPLOYMENT-RESULT.md) for complete deployment documen
 
 ## Architecture
 
-### Two-Part System
+### Three-Part System
 
 - **`backend/`** — Python FastAPI server with PostgreSQL, deployed via Docker
 - **`macos/`** — Native SwiftUI macOS app, built with Swift Package Manager
+- **`landing/`** — Official website landing page (pure HTML/CSS/JS, served by nginx)
 
 The macOS client communicates with the backend over HTTPS using Bearer token auth (Clerk JWT).
+
+### Landing Page (`landing/`)
+
+Static website served by nginx at `https://readless.cc/`. Pure HTML/CSS/JS, no build step.
+
+```
+landing/
+├── index.html              # Main page
+├── favicon.ico             # Site icon
+├── robots.txt              # Crawler rules
+├── landing-assets/         # CSS, JS (served at /landing-assets/)
+├── nginx-landing.conf      # Nginx config snippet
+└── deploy-landing.sh       # One-click deploy script
+```
+
+**Local preview:**
+```bash
+cd landing && python3 -m http.server 9123
+# Open http://localhost:9123
+```
+
+**Deploy to production:**
+```bash
+bash landing/deploy-landing.sh
+```
+
+**Nginx routing:** Landing page uses `location = /` and `location ^~ /landing-assets/` to serve static files. API routes (`/api/`, `/health`, `/docs`) continue to proxy to FastAPI.
 
 ### Backend Structure (`backend/app/`)
 
