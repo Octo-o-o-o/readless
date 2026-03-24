@@ -5,6 +5,7 @@
 
 /* ── Design Tokens ── */
 :root {
+  /* Dark theme (default) */
   --color-bg: #000000;
   --color-surface: #0a0a0a;
   --color-text: #ffffff;
@@ -12,6 +13,10 @@
   --color-text-muted: #555555;
   --color-border: #222222;
   --color-status-green: #22c55e;
+  --color-nav-bg: rgba(0, 0, 0, 0.8);
+  --color-shadow: rgba(0, 0, 0, 0.4);
+  --color-btn-bg: #ffffff;
+  --color-btn-text: #000000;
 
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
@@ -31,6 +36,29 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+}
+
+/* ── Light Theme ── */
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-surface: #f5f5f5;
+  --color-text: #111111;
+  --color-text-secondary: #555555;
+  --color-text-muted: #999999;
+  --color-border: #e0e0e0;
+  --color-status-green: #16a34a;
+  --color-nav-bg: rgba(255, 255, 255, 0.8);
+  --color-shadow: rgba(0, 0, 0, 0.08);
+  --color-btn-bg: #111111;
+  --color-btn-text: #ffffff;
+}
+
+/* ── Theme Transition ── */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease !important;
 }
 
 /* ── Reset ── */
@@ -96,7 +124,7 @@ img, svg {
   right: 0;
   z-index: 100;
   padding: var(--space-md) 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--color-nav-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid transparent;
@@ -137,8 +165,8 @@ img, svg {
   padding: var(--space-sm) var(--space-md);
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-bg);
-  background: var(--color-text);
+  color: var(--color-btn-text);
+  background: var(--color-btn-bg);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -206,8 +234,8 @@ img, svg {
   font-size: 1rem;
   font-weight: 500;
   font-family: var(--font-sans);
-  color: var(--color-bg);
-  background: var(--color-text);
+  color: var(--color-btn-text);
+  background: var(--color-btn-bg);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -450,7 +478,7 @@ kbd {
   border: 1px solid var(--color-border);
   border-bottom-width: 3px;
   border-radius: var(--radius-sm);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 2px var(--color-shadow);
 }
 
 .kbd-label {
@@ -501,8 +529,8 @@ kbd {
   font-size: 1rem;
   font-weight: 500;
   font-family: var(--font-sans);
-  color: var(--color-bg);
-  background: var(--color-text);
+  color: var(--color-btn-text);
+  background: var(--color-btn-bg);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -554,6 +582,61 @@ kbd {
 }
 
 /* ============================================================
+   Toggle Switch Controls
+   ============================================================ */
+.nav-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.toggle-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.toggle-switch__label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.toggle-switch__track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--color-border);
+  border-radius: 10px;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggle-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-text);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch--active .toggle-switch__track {
+  background: var(--color-text-secondary);
+}
+
+.toggle-switch--active .toggle-switch__thumb {
+  transform: translateX(16px);
+}
+
+/* ============================================================
    Responsive
    ============================================================ */
 @media (max-width: 768px) {
@@ -587,6 +670,14 @@ kbd {
 
   .level:nth-child(3) .level-bar { width: 100px; }
   .level:nth-child(4) .level-bar { width: 140px; }
+
+  .nav-controls {
+    gap: var(--space-sm);
+  }
+
+  .toggle-switch__label {
+    font-size: 0.6875rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -600,5 +691,23 @@ kbd {
 
   .feature {
     padding: var(--space-lg);
+  }
+
+  .toggle-switch__track {
+    width: 30px;
+    height: 17px;
+  }
+
+  .toggle-switch__thumb {
+    width: 13px;
+    height: 13px;
+  }
+
+  .toggle-switch--active .toggle-switch__thumb {
+    transform: translateX(13px);
+  }
+
+  .nav-cta span {
+    display: none;
   }
 }
