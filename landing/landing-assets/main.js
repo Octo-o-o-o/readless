@@ -129,7 +129,6 @@
   /* ── Theme Management ── */
   var root = document.documentElement
   var themeToggle = document.getElementById('theme-toggle')
-  var themeLabel = document.getElementById('theme-label')
   var themeColorMeta = document.querySelector('meta[name="theme-color"]')
 
   function getTheme() {
@@ -144,7 +143,6 @@
     // Update switch state
     themeToggle.classList.toggle('toggle-switch--active', theme === 'light')
     themeToggle.setAttribute('aria-checked', theme === 'light')
-    themeLabel.textContent = theme === 'light' ? '🌙' : '☀️'
 
     // Update meta theme-color
     if (themeColorMeta) {
@@ -196,7 +194,7 @@
     // Update switch state
     langToggle.classList.toggle('toggle-switch--active', lang === 'zh')
     langToggle.setAttribute('aria-checked', lang === 'zh')
-    langLabel.textContent = lang === 'zh' ? 'EN' : '中'
+    langLabel.textContent = lang === 'en' ? 'EN' : 'ZH'
 
     // Update text content
     var strings = i18n[lang] || i18n.en

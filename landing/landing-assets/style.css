@@ -124,7 +124,7 @@ img, svg {
   left: 0;
   right: 0;
   z-index: 100;
-  padding: var(--space-md) 0;
+  padding: var(--space-sm) 0;
   background: var(--color-nav-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -154,9 +154,15 @@ img, svg {
   letter-spacing: -0.02em;
 }
 
-.nav-logo svg {
-  width: 24px;
-  height: 24px;
+.nav-logo-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+/* Invert icon colors in light mode */
+[data-theme="light"] .nav-logo-icon {
+  filter: invert(1);
 }
 
 .nav-cta {
@@ -611,6 +617,26 @@ kbd {
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
+
+/* Theme toggle icon (sun/moon) */
+.toggle-switch__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+}
+
+.toggle-switch__icon svg {
+  display: block;
+}
+
+/* Dark mode: show sun, hide moon */
+.toggle-switch__icon .icon-sun { display: block; }
+.toggle-switch__icon .icon-moon { display: none; }
+
+/* Light mode: show moon, hide sun */
+[data-theme="light"] .toggle-switch__icon .icon-sun { display: none; }
+[data-theme="light"] .toggle-switch__icon .icon-moon { display: block; }
 
 .toggle-switch__track {
   position: relative;
