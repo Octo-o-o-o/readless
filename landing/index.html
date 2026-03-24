@@ -31,8 +31,8 @@
       d.dataset.theme=s||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');
       var lang=l||(navigator.language.startsWith('zh')?'zh':'en');
       d.lang=lang;d.dataset.lang=lang;
-      document.querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content',d.dataset.theme==='light'?'#ffffff':'#000000');
+      var m=document.querySelector('meta[name="theme-color"]');
+      if(m)m.setAttribute('content',d.dataset.theme==='light'?'#ffffff':'#000000');
     })();
   </script>
 </head>

@@ -59,6 +59,7 @@
       'cta.btn': 'Download for macOS',
 
       // Footer
+      'footer.contact': 'Contact',
       'footer.copy': '© 2026 Readless',
 
       // Meta
@@ -117,6 +118,7 @@
       'cta.btn': '下载 macOS 版',
 
       // Footer
+      'footer.contact': '联系我们',
       'footer.copy': '© 2026 Readless',
 
       // Meta
