@@ -160,10 +160,6 @@ img, svg {
   border-radius: 6px;
 }
 
-/* Invert icon colors in light mode */
-[data-theme="light"] .nav-logo-icon {
-  filter: invert(1);
-}
 
 .nav-cta {
   display: inline-flex;
@@ -616,27 +612,34 @@ kbd {
   color: var(--color-text-secondary);
   letter-spacing: 0.02em;
   white-space: nowrap;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
-/* Theme toggle icon (sun/moon) */
+/* Theme toggle icon (sun/moon) — fixed size to prevent layout shift */
 .toggle-switch__icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
   color: var(--color-text-secondary);
 }
 
 .toggle-switch__icon svg {
-  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transition: opacity 0.2s ease;
 }
 
 /* Dark mode: show sun, hide moon */
-.toggle-switch__icon .icon-sun { display: block; }
-.toggle-switch__icon .icon-moon { display: none; }
+.toggle-switch__icon .icon-sun { opacity: 1; }
+.toggle-switch__icon .icon-moon { opacity: 0; }
 
 /* Light mode: show moon, hide sun */
-[data-theme="light"] .toggle-switch__icon .icon-sun { display: none; }
-[data-theme="light"] .toggle-switch__icon .icon-moon { display: block; }
+[data-theme="light"] .toggle-switch__icon .icon-sun { opacity: 0; }
+[data-theme="light"] .toggle-switch__icon .icon-moon { opacity: 1; }
 
 .toggle-switch__track {
   position: relative;
