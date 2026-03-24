@@ -77,16 +77,36 @@
 
 ## 前端约定 (Landing Page)
 
-### Design Tokens
+### Design Tokens — Dark (Default)
 
 | Token | 值 | 用途 |
 |-------|-----|------|
 | background | #000000 | 页面背景 |
+| surface | #0a0a0a | 卡片/区块背景 |
 | text-primary | #FFFFFF | 正文/标题 |
 | text-secondary | #888888 | 辅助文字 |
 | text-muted | #555555 | 极淡辅助 |
 | border | #222222 | 边框/分割线 |
-| surface | #111111 | 卡片/区块背景 |
+| nav-bg | rgba(0,0,0,0.8) | 导航栏背景 |
+| btn-bg / btn-text | #FFFFFF / #000000 | 按钮背景/文字 |
+
+### Design Tokens — Light
+
+| Token | 值 | 用途 |
+|-------|-----|------|
+| background | #FFFFFF | 页面背景 |
+| surface | #F5F5F5 | 卡片/区块背景 |
+| text-primary | #111111 | 正文/标题 |
+| text-secondary | #555555 | 辅助文字 |
+| text-muted | #999999 | 极淡辅助 |
+| border | #E0E0E0 | 边框/分割线 |
+| nav-bg | rgba(255,255,255,0.8) | 导航栏背景 |
+| btn-bg / btn-text | #111111 / #FFFFFF | 按钮背景/文字 |
+
+### 主题切换约定
+- 通过 `[data-theme="light"]` CSS 选择器覆盖 `:root` 变量
+- 所有颜色必须通过 CSS 变量引用，禁止硬编码 rgba/hex（变量定义处除外）
+- FOUC 防护: `<head>` 内联脚本同步初始化
 
 ### Typography
 

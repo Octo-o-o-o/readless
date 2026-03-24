@@ -121,13 +121,25 @@ Static website served by nginx at `https://readless.cc/`. Pure HTML/CSS/JS, no b
 
 ```
 landing/
-├── index.html              # Main page
+├── index.html              # Main page (with FOUC prevention script in <head>)
 ├── favicon.ico             # Site icon
 ├── robots.txt              # Crawler rules
 ├── landing-assets/         # CSS, JS (served at /landing-assets/)
 ├── nginx-landing.conf      # Nginx config snippet
 └── deploy-landing.sh       # One-click deploy script
 ```
+
+**Theme Switching:**
+- Dark (default) / Light via `[data-theme]` attribute on `<html>`
+- CSS Custom Properties in `:root` (dark) and `[data-theme="light"]` (light)
+- Default follows `prefers-color-scheme`, user choice persisted in localStorage
+- FOUC prevention: inline `<script>` in `<head>` syncs theme before first paint
+
+**i18n (EN/ZH):**
+- All text content has `data-i18n` or `data-i18n-html` attributes
+- Translations in `main.js` as `i18n = { en: {...}, zh: {...} }` object
+- Default follows `navigator.language`, user choice persisted in localStorage
+- `data-i18n` → `textContent`, `data-i18n-html` → `innerHTML` (for elements with HTML children)
 
 **Local preview:**
 ```bash
