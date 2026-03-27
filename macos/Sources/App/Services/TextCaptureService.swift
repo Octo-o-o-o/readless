@@ -23,8 +23,11 @@ final class TextCaptureService {
         )
         guard focusResult == .success else { return nil }
 
-        // AXUIElement is a CoreFoundation type; cast from AnyObject always succeeds.
-        let element = focusedElement! as! AXUIElement
+        guard let focusedElement else { return nil }
+        guard CFGetTypeID(focusedElement) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        let element = unsafeBitCast(focusedElement, to: AXUIElement.self)
 
         var selectedText: AnyObject?
         let textResult = AXUIElementCopyAttributeValue(

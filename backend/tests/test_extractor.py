@@ -5,7 +5,7 @@ These tests require NO network access and NO external files.
 
 import base64
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from PIL import Image
@@ -131,3 +131,39 @@ async def test_extract_image_accepts_base64_payload(
     assert mock_ocr.call_count == 1
     assert result.title == "Uploaded Image"
     assert "OCR result text" == result.full_text
+
+
+async def test_extract_url_rejects_private_network_targets(
+    extractor: ContentExtractor,
+) -> None:
+    """Private IP imports should be blocked before any outbound request."""
+    with pytest.raises(ValueError, match="Private or local network URLs"):
+        await extractor.extract_url("http://127.0.0.1/internal")
+
+
+async def test_extract_pdf_rejects_local_paths_when_disabled(
+    extractor: ContentExtractor,
+    tmp_path,
+) -> None:
+    """Server-side file paths must not be accepted from API clients by default."""
+    pdf_path = tmp_path / "secret.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 test")
+
+    with pytest.raises(ValueError, match="Invalid PDF payload"):
+        await extractor.extract_pdf(str(pdf_path))
+
+
+async def test_extract_url_rejects_dns_resolved_private_hosts(
+    extractor: ContentExtractor,
+) -> None:
+    """Hostnames resolving to RFC1918 IPs should be rejected."""
+    mock_loop = AsyncMock()
+    mock_loop.getaddrinfo.return_value = [
+        (0, 0, 0, "", ("10.0.0.8", 443))
+    ]
+    with patch(
+        "app.services.extractor.asyncio.get_running_loop",
+        return_value=mock_loop,
+    ):
+        with pytest.raises(ValueError, match="Private or local network URLs"):
+            await extractor._assert_public_http_url("https://example.com/private")

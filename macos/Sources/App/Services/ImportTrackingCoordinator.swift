@@ -2,9 +2,8 @@ import Foundation
 import Core
 import Networking
 
-@MainActor
-final class ImportTrackingCoordinator {
-    struct TrackingBehavior {
+actor ImportTrackingCoordinator {
+    struct TrackingBehavior: Sendable {
         var showResultOnReady: Bool
         var showFailureToast: Bool
         var keepsCapsule: Bool
@@ -45,9 +44,9 @@ final class ImportTrackingCoordinator {
     typealias FetchStatusesHandler = ([String]) async throws -> [ContentStatusSnapshot]
     typealias FetchContentHandler = (String) async throws -> Content
     typealias PersistContentHandler = (Content) async -> Void
-    typealias ContentUpdateHandler = (Content) -> Void
-    typealias CompletionHandler = (Content, TrackingBehavior) -> Void
-    typealias PollingErrorHandler = (String, Error) -> Void
+    typealias ContentUpdateHandler = (Content) async -> Void
+    typealias CompletionHandler = (Content, TrackingBehavior) async -> Void
+    typealias PollingErrorHandler = (String, Error) async -> Void
 
     private let fetchStatuses: FetchStatusesHandler
     private let fetchContent: FetchContentHandler
@@ -84,7 +83,7 @@ final class ImportTrackingCoordinator {
 
     func trackIfNeeded(_ content: Content, behavior: TrackingBehavior) {
         guard content.status == .pending || content.status == .processing else {
-            cancel(contentID: content.id)
+            cancelLocked(contentID: content.id)
             return
         }
 
@@ -100,13 +99,15 @@ final class ImportTrackingCoordinator {
         )
 
         for content in contents where content.status == .pending || content.status == .processing {
+            behaviors[content.id] = (behaviors[content.id] ?? .background).merged(with: .background)
             lastSnapshots[content.id] = snapshot(from: content)
-            trackIfNeeded(content, behavior: .background)
         }
 
         for id in Array(behaviors.keys) where !activeIDs.contains(id) {
-            cancel(contentID: id)
+            cancelLocked(contentID: id)
         }
+
+        ensurePollingTask()
     }
 
     func disableInteractiveBehavior(contentID: String) {
@@ -119,6 +120,16 @@ final class ImportTrackingCoordinator {
     }
 
     func cancel(contentID: String) {
+        cancelLocked(contentID: contentID)
+    }
+
+    func cancelAll() {
+        for contentID in Array(behaviors.keys) {
+            cancelLocked(contentID: contentID)
+        }
+    }
+
+    private func cancelLocked(contentID: String) {
         behaviors[contentID] = nil
         lastSnapshots[contentID] = nil
         if behaviors.isEmpty {
@@ -127,16 +138,10 @@ final class ImportTrackingCoordinator {
         }
     }
 
-    func cancelAll() {
-        for contentID in Array(behaviors.keys) {
-            cancel(contentID: contentID)
-        }
-    }
-
     private func ensurePollingTask() {
         guard pollingTask == nil else { return }
-        pollingTask = Task { [weak self] in
-            await self?.pollLoop()
+        pollingTask = Task {
+            await pollLoop()
         }
     }
 
@@ -167,13 +172,13 @@ final class ImportTrackingCoordinator {
 
                     do {
                         let content = try await fetchContent(contentID)
-                        onContentUpdate(content)
+                        await onContentUpdate(content)
                         await persistContent(content)
-                        handleTerminalStateIfNeeded(contentID: contentID, content: content)
+                        await handleTerminalStateIfNeeded(contentID: contentID, content: content)
                     } catch is CancellationError {
                         return
                     } catch {
-                        onPollingError(contentID, error)
+                        await onPollingError(contentID, error)
                     }
                 }
 
@@ -182,7 +187,7 @@ final class ImportTrackingCoordinator {
                 return
             } catch {
                 for contentID in activeIDs {
-                    onPollingError(contentID, error)
+                    await onPollingError(contentID, error)
                 }
                 try? await Task.sleep(for: pollingInterval)
             }
@@ -212,24 +217,17 @@ final class ImportTrackingCoordinator {
             || snapshot.processingError != previous.processingError
     }
 
-    private func handleTerminalStateIfNeeded(contentID: String, content: Content) {
+    private func handleTerminalStateIfNeeded(contentID: String, content: Content) async {
         let behavior = behaviors[contentID] ?? .background
         switch content.status {
         case .pending, .processing:
             return
         case .ready:
-            behaviors[contentID] = nil
-            lastSnapshots[contentID] = nil
-            onReady(content, behavior)
+            cancelLocked(contentID: contentID)
+            await onReady(content, behavior)
         case .failed:
-            behaviors[contentID] = nil
-            lastSnapshots[contentID] = nil
-            onFailure(content, behavior)
-        }
-
-        if behaviors.isEmpty {
-            pollingTask?.cancel()
-            pollingTask = nil
+            cancelLocked(contentID: contentID)
+            await onFailure(content, behavior)
         }
     }
 }

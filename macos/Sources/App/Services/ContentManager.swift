@@ -61,7 +61,7 @@ final class ContentManager {
             )
             upsertContent(content)
             try await repository.cacheContent(content, userId: currentUserId)
-            startTrackingIfNeeded(content, behavior: .silentImport)
+            await startTrackingIfNeeded(content, behavior: .silentImport)
         } catch {
             // Show user-friendly error message
             let message = userFriendlyErrorMessage(for: error)
@@ -83,7 +83,7 @@ final class ContentManager {
             upsertContent(content)
             try await repository.cacheContent(content, userId: currentUserId)
             processingContent = content
-            startTrackingIfNeeded(content, behavior: .displayImport)
+            await startTrackingIfNeeded(content, behavior: .displayImport)
         } catch {
             capsuleState = .dismissed
             // Show user-friendly error message
@@ -103,7 +103,7 @@ final class ContentManager {
         )
         upsertContent(content)
         try await repository.cacheContent(content, userId: currentUserId)
-        startTrackingIfNeeded(content, behavior: .quietImport)
+        await startTrackingIfNeeded(content, behavior: .quietImport)
         return content
     }
 
@@ -111,7 +111,9 @@ final class ContentManager {
     func cancelProcessing() {
         capsuleState = .dismissed
         if let contentID = processingContent?.id {
-            importTracker.disableInteractiveBehavior(contentID: contentID)
+            Task {
+                await importTracker.disableInteractiveBehavior(contentID: contentID)
+            }
         }
         processingContent = nil
     }
@@ -140,12 +142,12 @@ final class ContentManager {
             if !cached.isEmpty {
                 print("[ContentManager] Preloaded \(cached.count) items from local cache")
             }
-            resumeBackgroundTracking(for: cached)
+            await resumeBackgroundTracking(for: cached)
         } else {
             if let cached = try? await repository.fetchCachedContents(userId: userId), !cached.isEmpty {
                 contents = cached
                 print("[ContentManager] Preloaded \(cached.count) items from local cache")
-                resumeBackgroundTracking(for: cached)
+                await resumeBackgroundTracking(for: cached)
             }
         }
 
@@ -154,10 +156,10 @@ final class ContentManager {
             let fresh = try await repository.listContents()
             if fresh != contents {
                 contents = fresh
+                await cacheContents(fresh)
             }
             error = nil
-            await cacheContents(fresh)
-            resumeBackgroundTracking(for: fresh)
+            await resumeBackgroundTracking(for: fresh)
         } catch {
             // Keep cached list if refresh fails
             self.error = error
@@ -191,7 +193,7 @@ final class ContentManager {
             let updatedContent = try await repository.fetchContent(id: id)
             upsertContent(updatedContent)
             try? await repository.cacheContent(updatedContent, userId: currentUserId)
-            startTrackingIfNeeded(updatedContent, behavior: .background)
+            await startTrackingIfNeeded(updatedContent, behavior: .background)
             notifyContentUpdated(updatedContent)
             error = nil
         } catch {
@@ -213,16 +215,16 @@ final class ContentManager {
         }
     }
 
-    private func resumeBackgroundTracking(for items: [Content]) {
-        importTracker.resumeBackgroundTracking(for: items)
+    private func resumeBackgroundTracking(for items: [Content]) async {
+        await importTracker.resumeBackgroundTracking(for: items)
     }
 
-    private func startTrackingIfNeeded(_ content: Content, behavior: ProcessingBehavior) {
+    private func startTrackingIfNeeded(_ content: Content, behavior: ProcessingBehavior) async {
         if behavior.showResultOnReady || behavior.keepsCapsule {
             processingContent = content
         }
 
-        importTracker.trackIfNeeded(content, behavior: behavior)
+        await importTracker.trackIfNeeded(content, behavior: behavior)
     }
 
     private func handleTrackedContentFailure(_ content: Content, behavior: ProcessingBehavior) {
@@ -269,8 +271,8 @@ final class ContentManager {
         notifyContentUpdated(content)
     }
 
-    func trackContentIfNeeded(_ content: Content) {
-        startTrackingIfNeeded(content, behavior: .background)
+    func trackContentIfNeeded(_ content: Content) async {
+        await startTrackingIfNeeded(content, behavior: .background)
     }
 
     private func notifyContentUpdated(_ content: Content) {
@@ -286,20 +288,28 @@ final class ContentManager {
                 try await repository.fetchContent(id: contentID)
             },
             persistContent: { [weak self, repository] content in
-                guard let self else { return }
-                try? await repository.cacheContent(content, userId: self.currentUserId)
+                let userId = await MainActor.run { self?.currentUserId }
+                try? await repository.cacheContent(content, userId: userId)
             },
             onContentUpdate: { [weak self] content in
-                self?.handleTrackedContentUpdate(content)
+                await MainActor.run {
+                    self?.handleTrackedContentUpdate(content)
+                }
             },
             onReady: { [weak self] content, behavior in
-                self?.handleTrackedContentReady(content, behavior: behavior)
+                await MainActor.run {
+                    self?.handleTrackedContentReady(content, behavior: behavior)
+                }
             },
             onFailure: { [weak self] content, behavior in
-                self?.handleTrackedContentFailure(content, behavior: behavior)
+                await MainActor.run {
+                    self?.handleTrackedContentFailure(content, behavior: behavior)
+                }
             },
             onPollingError: { contentID, error in
-                print("[ContentManager] Polling failed for \(contentID): \(error)")
+                await MainActor.run {
+                    print("[ContentManager] Polling failed for \(contentID): \(error)")
+                }
             }
         )
     }

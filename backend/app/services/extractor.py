@@ -6,11 +6,14 @@ import asyncio
 import base64
 import binascii
 import io
+import ipaddress
 import logging
 import re
+import socket
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import pdfplumber
@@ -18,7 +21,10 @@ import pytesseract
 import trafilatura
 from PIL import Image
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
+MAX_REDIRECTS = 5
 
 
 @dataclass
@@ -42,6 +48,88 @@ class ExtractedContent:
 
 class ContentExtractor:
     """Extracts and segments text from various sources."""
+
+    @staticmethod
+    def _is_disallowed_ip_address(host: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+
+    async def _assert_public_http_url(self, url: str) -> str:
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("Only HTTP(S) URLs are supported.")
+        if not parsed.netloc or parsed.username or parsed.password:
+            raise ValueError("Invalid URL.")
+
+        hostname = parsed.hostname
+        if hostname is None:
+            raise ValueError("Invalid URL.")
+        if self._is_disallowed_ip_address(hostname):
+            raise ValueError("Private or local network URLs are not allowed.")
+
+        try:
+            infos = await asyncio.get_running_loop().getaddrinfo(
+                hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+        except OSError as exc:
+            raise ValueError("Could not resolve URL host.") from exc
+        resolved_hosts = {info[4][0] for info in infos if info[4]}
+        if not resolved_hosts:
+            raise ValueError("Could not resolve URL host.")
+        if any(self._is_disallowed_ip_address(host) for host in resolved_hosts):
+            raise ValueError("Private or local network URLs are not allowed.")
+
+        return parsed.geturl()
+
+    async def _download_url_text(self, url: str) -> str:
+        current_url = await self._assert_public_http_url(url)
+        timeout = httpx.Timeout(30.0, connect=10.0)
+
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            for _ in range(MAX_REDIRECTS):
+                response = await client.get(
+                    current_url,
+                    headers={"Accept": "text/html,application/xhtml+xml,text/plain"},
+                )
+
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ValueError("Invalid redirect while fetching URL.")
+                    current_url = await self._assert_public_http_url(
+                        urljoin(current_url, location)
+                    )
+                    continue
+
+                response.raise_for_status()
+                content_length = response.headers.get("content-length")
+                if (
+                    content_length is not None
+                    and int(content_length) > settings.content_max_remote_fetch_bytes
+                ):
+                    raise ValueError(
+                        "Remote content is too large to import."
+                    )
+
+                body = response.text
+                if len(body.encode("utf-8")) > settings.content_max_remote_fetch_bytes:
+                    raise ValueError("Remote content is too large to import.")
+                return body
+
+        raise ValueError("Too many redirects while fetching URL.")
 
     # ------------------------------------------------------------------ #
     #  Paragraph segmentation
@@ -93,7 +181,8 @@ class ContentExtractor:
         Fallback: Jina Reader API.
         """
         loop = asyncio.get_event_loop()
-        downloaded = await loop.run_in_executor(None, trafilatura.fetch_url, url)
+        normalized_url = await self._assert_public_http_url(url)
+        downloaded = await self._download_url_text(normalized_url)
         body: str | None = None
         title: str | None = None
 
@@ -109,13 +198,21 @@ class ContentExtractor:
 
         # Fallback to Jina Reader
         if not body:
-            jina_url = f"https://r.jina.ai/{url}"
+            jina_url = f"https://r.jina.ai/{normalized_url}"
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(
                     jina_url, headers={"Accept": "text/plain"}
                 )
                 resp.raise_for_status()
+                content_length = resp.headers.get("content-length")
+                if (
+                    content_length is not None
+                    and int(content_length) > settings.content_max_remote_fetch_bytes
+                ):
+                    raise ValueError("Remote content is too large to import.")
                 body = resp.text
+                if len(body.encode("utf-8")) > settings.content_max_remote_fetch_bytes:
+                    raise ValueError("Remote content is too large to import.")
 
             # Jina's first line is usually the title
             if body:
@@ -131,7 +228,7 @@ class ContentExtractor:
             title=title,
             full_text=body,
             paragraphs=paragraphs,
-            source_url=url,
+            source_url=normalized_url,
         )
 
     # ------------------------------------------------------------------ #
@@ -228,6 +325,9 @@ class ContentExtractor:
     @staticmethod
     def _coerce_existing_path(payload: str) -> Path | None:
         """Return payload as a path only when the path exists on disk."""
+        if not settings.allow_local_file_imports:
+            return None
+
         try:
             path = Path(payload)
         except (OSError, ValueError):
@@ -243,6 +343,12 @@ class ContentExtractor:
             _, normalized = normalized.split(",", 1)
 
         try:
-            return base64.b64decode(normalized, validate=True)
+            decoded = base64.b64decode(normalized, validate=True)
         except (binascii.Error, ValueError):
             return None
+        if len(decoded) > settings.content_max_upload_bytes:
+            raise ValueError(
+                "Uploaded file is too large."
+                f" Maximum size is {settings.content_max_upload_bytes} bytes."
+            )
+        return decoded

@@ -10,13 +10,28 @@ public final class LocalDatabase {
     /// Singleton instance using default production database path.
     public static let shared: LocalDatabase = {
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard let appSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            preconditionFailure(
+                "LocalDatabase initialization failed: missing Application Support directory."
+            )
+        }
         let dbFolder = appSupport.appendingPathComponent("Readless", isDirectory: true)
 
-        try? fileManager.createDirectory(at: dbFolder, withIntermediateDirectories: true)
         let dbPath = dbFolder.appendingPathComponent("readless.db").path
-
-        return try! LocalDatabase(path: dbPath)
+        do {
+            try fileManager.createDirectory(
+                at: dbFolder,
+                withIntermediateDirectories: true
+            )
+            return try LocalDatabase(path: dbPath)
+        } catch {
+            preconditionFailure(
+                "LocalDatabase initialization failed for \(dbPath): \(error)"
+            )
+        }
     }()
 
     /// Initialize with custom database path (useful for testing with ":memory:").

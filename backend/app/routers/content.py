@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.auth import get_current_user_id
 from app.config import settings
@@ -34,6 +35,40 @@ from app.services.translator import _get_service as get_translator
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/content", tags=["content"])
+
+LIST_CONTENT_COLUMNS = (
+    Content.id,
+    Content.title,
+    Content.source_url,
+    Content.source_type,
+    Content.source_app_name,
+    Content.source_app_bundle_id,
+    Content.source_language,
+    Content.l0_summary,
+    Content.status,
+    Content.created_at,
+    Content.updated_at,
+    Content.processing_started_at,
+    Content.processing_finished_at,
+    Content.processing_error,
+    Content.processing_attempts,
+    Content.user_id,
+)
+
+STATUS_CONTENT_COLUMNS = (
+    Content.id,
+    Content.source_url,
+    Content.source_type,
+    Content.l0_summary,
+    Content.status,
+    Content.created_at,
+    Content.updated_at,
+    Content.processing_started_at,
+    Content.processing_finished_at,
+    Content.processing_error,
+    Content.processing_attempts,
+    Content.user_id,
+)
 
 _pipeline: ProcessingPipeline | None = None
 _summarizer: SummarizationService | None = None
@@ -138,6 +173,7 @@ async def list_contents(
     # Fetch contents
     stmt = (
         select(Content)
+        .options(load_only(*LIST_CONTENT_COLUMNS))
         .where(Content.user_id == user_id)
         .order_by(Content.created_at.desc())
         .limit(limit)
@@ -195,7 +231,7 @@ async def list_content_statuses(
     stmt = select(Content).where(
         Content.user_id == user_id,
         Content.id.in_(requested_ids),
-    )
+    ).options(load_only(*STATUS_CONTENT_COLUMNS))
     result = await db.execute(stmt)
     contents_by_id = {content.id: content for content in result.scalars().all()}
     jobs_by_content = await _get_content_jobs().get_jobs_by_content_ids(

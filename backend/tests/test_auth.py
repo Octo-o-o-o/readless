@@ -1,11 +1,14 @@
-"""Tests for Clerk JWT authentication middleware.
+"""Tests for JWT authentication middleware.
 
 These tests require NO external services, NO API keys, and NO network access.
 They verify module structure, security scheme, and that router stubs are removed.
 """
 
 import inspect
+from unittest.mock import patch
 
+import pytest
+from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 # ------------------------------------------------------------------ #
@@ -63,6 +66,31 @@ class TestGetCurrentUserIdSignature:
 
         sig = inspect.signature(get_current_user_id)
         assert sig.return_annotation is str
+
+    @pytest.mark.asyncio
+    async def test_disable_auth_allows_dev_bypass(self) -> None:
+        from app.auth import get_current_user_id, settings
+
+        with (
+            patch.object(settings, "disable_auth", True),
+            patch.object(settings, "app_env", "development"),
+            patch.object(settings, "allow_disable_auth_in_production", False),
+        ):
+            assert await get_current_user_id() == "dev-user"
+
+    @pytest.mark.asyncio
+    async def test_disable_auth_is_blocked_in_production(self) -> None:
+        from app.auth import get_current_user_id, settings
+
+        with (
+            patch.object(settings, "disable_auth", True),
+            patch.object(settings, "app_env", "production"),
+            patch.object(settings, "allow_disable_auth_in_production", False),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await get_current_user_id()
+
+        assert exc.value.status_code == 500
 
 
 # ------------------------------------------------------------------ #
@@ -122,6 +150,13 @@ class TestRoutersStillWork:
 
         paths = [route.path for route in app.routes]
         assert "/api/v1/search/" in paths
+
+    def test_email_verification_routes_registered(self) -> None:
+        from app.main import app
+
+        paths = [route.path for route in app.routes]
+        assert "/api/v1/auth/email/verify" in paths
+        assert "/api/v1/auth/email/resend-verification" in paths
 
     def test_health_endpoint_still_exists(self) -> None:
         from app.main import app

@@ -23,7 +23,7 @@ class ContentJob(Base):
     )
     user_id: Mapped[str] = mapped_column(PGUUID(as_uuid=False), nullable=False)
     source_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

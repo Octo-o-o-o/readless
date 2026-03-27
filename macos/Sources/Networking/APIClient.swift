@@ -51,8 +51,14 @@ public final class APIClient: @unchecked Sendable {
     public static let shared = APIClient()
 
     public let baseURL: URL
-    // Mutable so the token can be updated after authentication.
-    public var authToken: String?
+    /// Thread-safe auth token storage.
+    /// Written from `@MainActor` (AuthService), read from any async context.
+    private let _tokenLock = NSLock()
+    private var _authToken: String?
+    public var authToken: String? {
+        get { _tokenLock.withLock { _authToken } }
+        set { _tokenLock.withLock { _authToken = newValue } }
+    }
     private let transport: HTTPTransport
     private let refreshCoordinator: AuthRefreshCoordinator
 
@@ -85,18 +91,41 @@ public final class APIClient: @unchecked Sendable {
         refreshCoordinator: AuthRefreshCoordinator = AuthRefreshCoordinator()
     ) {
         self.baseURL = baseURL ?? Self.getConfiguredBaseURL()
-        self.authToken = authToken
+        self._authToken = authToken
         self.transport = transport ?? HTTPTransport(session: session)
         self.refreshCoordinator = refreshCoordinator
     }
 
+    struct RequestTarget: Sendable {
+        let path: String
+        let queryItems: [URLQueryItem]
+
+        init(path: String, queryItems: [URLQueryItem] = []) {
+            self.path = path
+            self.queryItems = queryItems
+        }
+    }
+
     // MARK: - Generic Request
 
-    func request(_ path: String, method: String = "GET", body: Data? = nil, isRetry: Bool = false) async throws -> Data {
-        guard let url = URL(string: path, relativeTo: baseURL) else {
-            print("[APIClient] ❌ Invalid URL: \(path) relative to \(baseURL)")
-            throw APIError.invalidURL
-        }
+    func request(
+        _ path: String,
+        queryItems: [URLQueryItem] = [],
+        method: String = "GET",
+        body: Data? = nil,
+        isRetry: Bool = false
+    ) async throws -> Data {
+        let target = RequestTarget(path: path, queryItems: queryItems)
+        return try await request(target, method: method, body: body, isRetry: isRetry)
+    }
+
+    private func request(
+        _ target: RequestTarget,
+        method: String,
+        body: Data?,
+        isRetry: Bool
+    ) async throws -> Data {
+        let url = try makeURL(for: target)
 
         var req = URLRequest(url: url)
         req.httpMethod = method
@@ -126,7 +155,7 @@ public final class APIClient: @unchecked Sendable {
                 let backendMessage = parseBackendErrorMessage(from: data)
 
                 if shouldAttemptTokenRefresh(
-                    path: path,
+                    path: target.path,
                     statusCode: http.statusCode,
                     isRetry: isRetry
                 ) {
@@ -134,7 +163,7 @@ public final class APIClient: @unchecked Sendable {
                     let refreshed = await refreshCoordinator.refreshTokenIfNeeded()
                     if refreshed {
                         return try await request(
-                            path,
+                            target,
                             method: method,
                             body: body,
                             isRetry: true
@@ -158,6 +187,41 @@ public final class APIClient: @unchecked Sendable {
             print("[APIClient] ❌ Network error: \(error.localizedDescription)")
             throw APIError.networkError(error)
         }
+    }
+
+    private func makeURL(for target: RequestTarget) throws -> URL {
+        guard var components = URLComponents(
+            url: baseURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            print("[APIClient] ❌ Invalid base URL: \(baseURL)")
+            throw APIError.invalidURL
+        }
+
+        components.path = Self.joinPaths(
+            basePath: components.path,
+            endpointPath: target.path
+        )
+        components.queryItems = target.queryItems.isEmpty ? nil : target.queryItems
+
+        guard let url = components.url else {
+            print("[APIClient] ❌ Failed to build URL for path: \(target.path)")
+            throw APIError.invalidURL
+        }
+        return url
+    }
+
+    private static func joinPaths(basePath: String, endpointPath: String) -> String {
+        let trimmedBase = basePath == "/" ? "" : basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let normalizedEndpoint = endpointPath.hasPrefix("/") ? endpointPath : "/\(endpointPath)"
+        let endpointBody = normalizedEndpoint.dropFirst()
+
+        guard !trimmedBase.isEmpty else {
+            return normalizedEndpoint
+        }
+
+        let combined = "/" + trimmedBase + "/" + endpointBody
+        return combined.replacingOccurrences(of: "//", with: "/")
     }
 
     private func parseBackendErrorMessage(from data: Data) -> String? {
@@ -213,17 +277,23 @@ public final class APIClient: @unchecked Sendable {
 
     /// List content items with pagination.
     public func listContents(offset: Int = 0, limit: Int = 50) async throws -> [Content] {
-        let data = try await request("/api/v1/content/?offset=\(offset)&limit=\(limit)")
+        let data = try await request(
+            "/api/v1/content/",
+            queryItems: [
+                URLQueryItem(name: "offset", value: String(offset)),
+                URLQueryItem(name: "limit", value: String(limit)),
+            ]
+        )
         return try JSONDecoder.apiDecoder.decode([Content].self, from: data)
     }
 
     /// Fetch lightweight processing statuses for a batch of content IDs.
     public func fetchContentStatuses(ids: [String]) async throws -> [ContentStatusSnapshot] {
         guard !ids.isEmpty else { return [] }
-        let query = ids
-            .map { "ids=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)" }
-            .joined(separator: "&")
-        let data = try await request("/api/v1/content/statuses?\(query)")
+        let data = try await request(
+            "/api/v1/content/statuses",
+            queryItems: ids.map { URLQueryItem(name: "ids", value: $0) }
+        )
         return try JSONDecoder.apiDecoder.decode([ContentStatusSnapshot].self, from: data)
     }
 
@@ -264,7 +334,8 @@ public final class APIClient: @unchecked Sendable {
     /// - Returns: Content with translated L0 summary and L1 outline
     public func translateContent(contentID: String, targetLanguage: String) async throws -> Content {
         let data = try await request(
-            "/api/v1/content/\(contentID)/translate?target_language=\(targetLanguage)",
+            "/api/v1/content/\(contentID)/translate",
+            queryItems: [URLQueryItem(name: "target_language", value: targetLanguage)],
             method: "POST"
         )
         return try JSONDecoder.apiDecoder.decode(Content.self, from: data)

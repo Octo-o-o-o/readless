@@ -94,7 +94,7 @@ final class ReaderViewModel {
             content = cached
             isLoadingContent = false
             cachedDetails = (try? await repository.fetchExpandedDetails(contentId: contentID)) ?? [:]
-            ContentManager.shared.trackContentIfNeeded(cached)
+            await ContentManager.shared.trackContentIfNeeded(cached)
         }
 
         // 2. Fetch from API in background to get fresh data
@@ -106,7 +106,7 @@ final class ReaderViewModel {
             // Update local cache
             let userId = AuthService.shared.currentUser?.id.uuidString
             try? await repository.cacheContent(fresh, userId: userId)
-            ContentManager.shared.trackContentIfNeeded(fresh)
+            await ContentManager.shared.trackContentIfNeeded(fresh)
         } catch is CancellationError {
             // Ignore canceled work when user quickly switches content.
         } catch {

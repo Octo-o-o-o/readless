@@ -225,7 +225,7 @@ final class CacheSettingsViewModel {
            let mode = SearchMode(rawValue: modeString) {
             self.searchMode = mode
         } else {
-            self.searchMode = .cloud  // Default to cloud search
+            self.searchMode = .local  // Default to local search
         }
     }
 

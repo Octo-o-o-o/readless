@@ -38,6 +38,12 @@ class ContentWorker:
         if recovered:
             logger.warning("Recovered %d orphaned content jobs", recovered)
 
+        await self.job_service.clear_finished_job_bodies()
+
+        purged = await self.job_service.purge_finished_jobs()
+        if purged:
+            logger.info("Purged %d old finished jobs on startup", purged)
+
         workers = [
             asyncio.create_task(self._run_slot(index + 1))
             for index in range(self.concurrency)

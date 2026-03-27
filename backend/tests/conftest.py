@@ -119,7 +119,7 @@ async def db_session():
                     content_id VARCHAR(36) NOT NULL UNIQUE,
                     user_id TEXT NOT NULL,
                     source_type VARCHAR(20) NOT NULL,
-                    body TEXT NOT NULL,
+                    body TEXT,
                     status VARCHAR(20) NOT NULL DEFAULT 'queued',
                     attempts INTEGER NOT NULL DEFAULT 0,
                     scheduled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -271,6 +271,21 @@ def mock_resend_email():
         new=mock_send,
     ):
         yield sent_codes
+
+
+@pytest_asyncio.fixture
+def mock_verification_email():
+    """Mock verification email delivery and capture tokens."""
+    sent_tokens: list[tuple[str, str]] = []
+
+    async def mock_send(_self, to_email: str, token: str):
+        sent_tokens.append((to_email, token))
+
+    with patch(
+        "app.services.email_service.ResendEmailService.send_verification_email",
+        new=mock_send,
+    ):
+        yield sent_tokens
 
 
 @pytest_asyncio.fixture

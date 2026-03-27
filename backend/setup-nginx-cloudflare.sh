@@ -73,6 +73,9 @@ echo "📝 创建nginx配置文件..."
 cat > /etc/nginx/sites-available/$DOMAIN << 'NGINX_CONFIG'
 # Cloudflare优化配置
 # 真实IP获取
+limit_req_zone $binary_remote_addr zone=readless_search_retrieve:10m rate=120r/m;
+limit_req_zone $binary_remote_addr zone=readless_search_answer:10m rate=30r/m;
+
 set_real_ip_from 103.21.244.0/22;
 set_real_ip_from 103.22.200.0/22;
 set_real_ip_from 103.31.4.0/22;
@@ -134,14 +137,58 @@ server {
     access_log /var/log/nginx/readless.access.log;
     error_log /var/log/nginx/readless.error.log;
 
-    # 文件上传大小限制
-    client_max_body_size 50M;
+    # 文件上传大小限制（与应用层 10 MiB 原始文件限制保持一致）
+    client_max_body_size 15M;
     client_body_buffer_size 128k;
+    client_body_timeout 30s;
+    keepalive_timeout 30s;
+    send_timeout 30s;
+    limit_req_status 429;
 
     # 超时配置（AI处理可能较长）
     proxy_connect_timeout 75s;
     proxy_send_timeout 300s;
     proxy_read_timeout 300s;
+
+    location = /api/v1/search/retrieve {
+        limit_req zone=readless_search_retrieve burst=30 nodelay;
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;
+        proxy_set_header CF-Ray $http_cf_ray;
+        proxy_set_header CF-Visitor $http_cf_visitor;
+        proxy_cache_bypass $http_upgrade;
+        proxy_no_cache 1;
+        proxy_buffering off;
+    }
+
+    location = /api/v1/search/ {
+        limit_req zone=readless_search_answer burst=10 nodelay;
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;
+        proxy_set_header CF-Ray $http_cf_ray;
+        proxy_set_header CF-Visitor $http_cf_visitor;
+        proxy_cache_bypass $http_upgrade;
+        proxy_no_cache 1;
+        proxy_buffering off;
+    }
 
     # API代理到本地FastAPI服务
     location / {

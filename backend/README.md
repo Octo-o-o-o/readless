@@ -42,11 +42,16 @@ nano .env
 ```
 
 必须配置的环境变量：
-- `ANTHROPIC_API_KEY` - Claude API密钥
+- `OPENAI_API_KEY` - OpenAI 兼容接口密钥
+- `OPENAI_BASE_URL` - 可选，自定义 OpenAI 兼容网关
+- `OPENAI_MODEL` - 摘要/搜索/播客脚本使用的模型名
 - `POSTGRES_PASSWORD` - 数据库密码
-- `CLERK_SECRET_KEY` - 认证密钥
+- `JWT_SECRET_KEY` - JWT签名密钥
+- `ADMIN_TOKEN` - 管理后台登录口令
+- `PUBLIC_APP_URL` - 邮箱验证链接使用的公开站点地址
 - `R2_*` - Cloudflare R2存储配置
 - `ELEVENLABS_API_KEY` - 语音合成密钥
+- `RESEND_API_KEY` / `RESEND_FROM_EMAIL` - 邮件登录码和验证邮件
 
 **2️⃣ 上传代码到服务器**
 
@@ -106,6 +111,9 @@ docker-compose exec api alembic upgrade head
 curl https://readless.cc/health
 
 # 应返回: {"status": "ok"}
+
+# 就绪检查（验证数据库连通性）
+curl https://readless.cc/health/ready
 
 # 测试API
 curl -X POST https://readless.cc/api/v1/content/ \
@@ -283,7 +291,7 @@ SELECT count(*) FROM pg_stat_activity;
 
 ```bash
 # 创建健康检查cron任务
-(crontab -l 2>/dev/null; echo "*/5 * * * * curl -f https://readless.cc/health || echo 'Readless down' | mail -s 'Alert' your@email.com") | crontab -
+(crontab -l 2>/dev/null; echo "*/5 * * * * curl -f https://readless.cc/health/ready || echo 'Readless down' | mail -s 'Alert' your@email.com") | crontab -
 ```
 
 ## 故障排查
@@ -294,6 +302,7 @@ SELECT count(*) FROM pg_stat_activity;
 2. 检查API日志: `docker-compose logs api`
 3. 检查nginx日志: `tail -f /var/log/nginx/readless.error.log`
 4. 测试本地端口: `curl http://127.0.0.1:8001/health`
+5. 测试数据库就绪探针: `curl http://127.0.0.1:8001/health/ready`
 
 ### 数据库连接失败
 
@@ -349,11 +358,11 @@ docker-compose pull
 
 - **Web框架**: FastAPI 0.115+
 - **数据库**: PostgreSQL 17 (带全文搜索)
-- **AI**: Anthropic Claude API (Sonnet 4.5)
+- **AI**: OpenAI 兼容 API
 - **内容提取**: Trafilatura, PDFPlumber, Tesseract OCR
 - **对象存储**: Cloudflare R2
 - **语音合成**: ElevenLabs Text to Dialogue
-- **认证**: Clerk
+- **认证**: JWT + refresh token + email code login
 - **反向代理**: Nginx
 - **容器化**: Docker + Docker Compose
 
@@ -365,4 +374,4 @@ docker-compose pull
 
 ## License
 
-MIT
+MIT. See [../LICENSE](../LICENSE).

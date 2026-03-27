@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
@@ -31,7 +31,7 @@ class ClaimedContentJob:
     id: str
     content_id: str
     source_type: str
-    body: str
+    body: str | None
     user_id: str
 
 
@@ -64,7 +64,7 @@ class ContentJobService:
         *,
         content_id: str,
         source_type: str,
-        body: str,
+        body: str | None,
         user_id: str,
         db: AsyncSession,
         job: ContentJob | None = None,
@@ -143,7 +143,7 @@ class ContentJobService:
         if existing_job is not None and existing_job.status in {"queued", "running"}:
             return existing_job, False
 
-        body = self.recoverable_content_body(content)
+        body = await self._load_recoverable_content_body(content, db=db)
         if body is None:
             return existing_job, False
 
@@ -164,6 +164,26 @@ class ContentJobService:
             return content.full_text
 
         return None
+
+    async def _load_recoverable_content_body(
+        self,
+        content: Content,
+        *,
+        db: AsyncSession,
+    ) -> str | None:
+        if content.source_type == "url":
+            return content.source_url
+
+        if content.source_type != "text":
+            return None
+
+        if "full_text" not in inspect(content).unloaded:
+            return content.full_text
+
+        result = await db.execute(
+            select(Content.full_text).where(Content.id == content.id)
+        )
+        return result.scalar_one_or_none()
 
     async def recover_orphaned_jobs(self) -> int:
         """Requeue any jobs left running by a previous worker process."""
@@ -187,6 +207,69 @@ class ContentJobService:
 
             await db.commit()
             return len(jobs)
+
+    async def clear_finished_job_bodies(self) -> int:
+        """Clear body from already-finished jobs (one-time backfill)."""
+        session_factory = self._get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(ContentJob).where(
+                    ContentJob.status.in_({"succeeded", "failed"}),
+                    ContentJob.body.is_not(None),
+                )
+            )
+            jobs = result.scalars().all()
+            cleared = 0
+            for job in jobs:
+                if job.status == "succeeded":
+                    job.body = None
+                    cleared += 1
+                elif job.status == "failed" and job.source_type in {"pdf", "image"}:
+                    job.body = None
+                    cleared += 1
+
+            if cleared:
+                await db.commit()
+                logger.info("Cleared body from %d finished jobs", cleared)
+            return cleared
+
+    async def purge_finished_jobs(
+        self,
+        *,
+        succeeded_older_than_days: int = 7,
+        failed_older_than_days: int = 30,
+    ) -> int:
+        """Delete completed job rows older than the retention thresholds."""
+        session_factory = self._get_session_factory()
+        now = datetime.now(UTC)
+        total_deleted = 0
+
+        async with session_factory() as db:
+            for status, days in [
+                ("succeeded", succeeded_older_than_days),
+                ("failed", failed_older_than_days),
+            ]:
+                cutoff = now - timedelta(days=days)
+                stmt = (
+                    delete(ContentJob)
+                    .where(
+                        ContentJob.status == status,
+                        or_(
+                            ContentJob.finished_at < cutoff,
+                            ContentJob.finished_at.is_(None),
+                        ),
+                    )
+                    .returning(ContentJob.id)
+                )
+                result = await db.execute(stmt)
+                count = len(result.all())
+                total_deleted += count
+
+            await db.commit()
+
+        if total_deleted:
+            logger.info("Purged %d finished content jobs", total_deleted)
+        return total_deleted
 
     async def process_next_job(self) -> bool:
         """Claim and process the next queued job."""
@@ -355,6 +438,7 @@ class ContentJobService:
         job.status = "succeeded"
         job.finished_at = datetime.now(UTC)
         job.last_error = None
+        job.body = None
 
     def _mark_job_failed(
         self,
@@ -372,6 +456,8 @@ class ContentJobService:
         job.status = "failed"
         job.finished_at = datetime.now(UTC)
         job.last_error = truncate_processing_error(message)
+        if job.source_type in {"pdf", "image"}:
+            job.body = None
 
     def _mark_content_failed(
         self,

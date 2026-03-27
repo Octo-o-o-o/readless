@@ -86,6 +86,20 @@ class TestContentCreateRequest:
         restored = ContentCreateRequest.model_validate_json(json_str)
         assert restored == original
 
+    def test_rejects_oversized_text_body(self) -> None:
+        with pytest.raises(ValueError, match="Text import is too large"):
+            ContentCreateRequest(
+                source_type="text",
+                body="x" * 200_001,
+            )
+
+    def test_rejects_oversized_upload_body(self) -> None:
+        with pytest.raises(ValueError, match="Uploaded file is too large"):
+            ContentCreateRequest(
+                source_type="pdf",
+                body="a" * 14_000_000,
+            )
+
 
 # ------------------------------------------------------------------ #
 #  ContentResponse schema

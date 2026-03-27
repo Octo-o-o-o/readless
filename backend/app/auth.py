@@ -15,6 +15,14 @@ async def get_current_user_id(
 ) -> str:
     """Verify local access token and return user ID (sub claim)."""
     if settings.disable_auth:
+        if (
+            settings.app_env == "production"
+            and not settings.allow_disable_auth_in_production
+        ):
+            raise HTTPException(
+                500,
+                "Authentication bypass is disabled in production.",
+            )
         return "dev-user"
 
     if credentials is None:

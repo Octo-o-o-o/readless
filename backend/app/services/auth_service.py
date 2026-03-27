@@ -21,7 +21,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_utils import (
@@ -46,6 +46,24 @@ def _normalize_email(email: str) -> str:
 def _hash_refresh_token(token: str) -> str:
     """Hash refresh tokens before storing them in the database."""
     return SessionService.hash_refresh_token(token)
+
+
+def _hash_password_reset_token(token: str) -> str:
+    """Hash password reset tokens before storing them in the database."""
+    return hmac.new(
+        settings.jwt_secret_key.encode("utf-8"),
+        token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _hash_email_verification_token(token: str) -> str:
+    """Hash email verification tokens before storing them in the database."""
+    return hmac.new(
+        settings.jwt_secret_key.encode("utf-8"),
+        token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 class AuthService:
@@ -119,7 +137,9 @@ class AuthService:
             subscription_tier="trial",
             trial_expires_at=trial_expires,
             email_verified=False,
-            email_verification_token=verification_token,
+            email_verification_token=_hash_email_verification_token(
+                verification_token
+            ),
         )
 
         self.db.add(user)
@@ -384,10 +404,14 @@ class AuthService:
         Raises:
             ValueError: If token invalid or user not found
         """
+        hashed_token = _hash_email_verification_token(token)
         # Find user by verification token
         result = await self.db.execute(
             select(User).where(
-                User.email_verification_token == token,
+                or_(
+                    User.email_verification_token == hashed_token,
+                    User.email_verification_token == token,
+                ),
                 User.deleted_at.is_(None),
             )
         )
@@ -406,7 +430,7 @@ class AuthService:
 
     async def resend_verification_email(self, email: str) -> str:
         """
-        Generate new verification token for user.
+        Generate and deliver a new verification token for user.
 
         Args:
             email: User email address
@@ -415,11 +439,16 @@ class AuthService:
             New verification token
 
         Raises:
-            ValueError: If user not found or already verified
+            ValueError: If user not found, already verified, or email delivery fails
         """
+        normalized_email = _normalize_email(email)
+
         # Find user by email
         result = await self.db.execute(
-            select(User).where(User.email == email, User.deleted_at.is_(None))
+            select(User).where(
+                User.email == normalized_email,
+                User.deleted_at.is_(None),
+            )
         )
         user = result.scalars().first()
 
@@ -431,7 +460,20 @@ class AuthService:
 
         # Generate new token
         verification_token = generate_verification_token()
-        user.email_verification_token = verification_token
+        user.email_verification_token = _hash_email_verification_token(
+            verification_token
+        )
+        await self.db.flush()
+
+        try:
+            await self.email_service.send_verification_email(
+                to_email=normalized_email,
+                token=verification_token,
+            )
+        except ValueError:
+            await self.db.rollback()
+            raise
+
         await self.db.commit()
 
         return verification_token
@@ -472,7 +514,7 @@ class AuthService:
         # Store token
         reset_token = PasswordResetToken(
             user_id=user.id,
-            token=token,
+            token=_hash_password_reset_token(token),
             expires_at=expires_at,
         )
         self.db.add(reset_token)
@@ -502,9 +544,13 @@ class AuthService:
             raise ValueError(error_msg)
 
         # Find token
+        hashed_token = _hash_password_reset_token(token)
         result = await self.db.execute(
             select(PasswordResetToken).where(
-                PasswordResetToken.token == token,
+                or_(
+                    PasswordResetToken.token == hashed_token,
+                    PasswordResetToken.token == token,
+                ),
                 PasswordResetToken.used_at.is_(None),
             )
         )
@@ -515,7 +561,8 @@ class AuthService:
 
         # Check token not expired
         now = datetime.now(UTC)
-        if reset_token.expires_at < now:
+        expires_at = _to_utc(reset_token.expires_at)
+        if expires_at < now:
             raise ValueError(
                 "Password reset link has expired."
                 " Please request a new one."

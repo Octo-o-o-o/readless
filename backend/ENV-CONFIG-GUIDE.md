@@ -287,10 +287,10 @@ cat backend/.env | grep -E 'xxxxx|changeme|你的'
 
 3. **最小权限原则**
    - R2 API Token只给必要的读写权限
-   - Clerk配置最小必要的scope
+   - 管理后台和邮件服务只保留最小必要权限
 
 4. **监控使用量**
-   - 定期检查Anthropic、ElevenLabs使用量
+   - 定期检查OpenAI兼容接口、ElevenLabs使用量
    - 设置成本告警
 
 ---
@@ -309,7 +309,7 @@ cat backend/.env | grep -E 'xxxxx|changeme|你的'
   psql -h 127.0.0.1 -p 5433 -U readless -d readless
   ```
 
-### Q2: Clerk可以用其他认证服务替代吗？
+### Q2: 当前JWT认证可以替换成其他认证服务吗？
 
 **A**: 可以，可选方案：
 - Auth0

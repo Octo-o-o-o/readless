@@ -13,7 +13,13 @@ public final class HistoryManager {
 
     /// Singleton instance sharing the same DatabaseQueue as LocalDatabase
     /// to avoid write-lock contention on the same SQLite file.
-    public static let shared: HistoryManager = try! HistoryManager(dbQueue: LocalDatabase.shared.dbQueue)
+    public static let shared: HistoryManager = {
+        do {
+            return try HistoryManager(dbQueue: LocalDatabase.shared.dbQueue)
+        } catch {
+            preconditionFailure("HistoryManager initialization failed: \(error)")
+        }
+    }()
 
     /// Initialize with a shared DatabaseQueue (production use).
     public init(dbQueue: DatabaseQueue) throws {
