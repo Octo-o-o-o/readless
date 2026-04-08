@@ -22,7 +22,7 @@
   <link rel="icon" href="/favicon.ico" type="image/x-icon">
   <!-- apple-touch-icon: add when icon asset is available -->
   <!-- <link rel="apple-touch-icon" href="/landing-assets/apple-touch-icon.png"> -->
-  <link rel="stylesheet" href="/landing-assets/style.css?v=3">
+  <link rel="stylesheet" href="/landing-assets/style.css?v=4">
   <meta name="theme-color" content="#000000">
   <!-- FOUC prevention: sync theme & lang before first paint -->
   <script>
@@ -36,7 +36,7 @@
     })();
   </script>
 </head>
-<body>
+<body data-i18n-title="_title" data-i18n-description="_description">
 
   <!-- ════════════════════════════════════════════════════════════
        Navigation
@@ -325,12 +325,14 @@
         <p class="footer-left" data-i18n="footer.copy">© 2026 Readless</p>
         <div class="footer-links">
           <a href="https://github.com/Octo-o-o-o/readless" target="_blank" rel="noopener">GitHub</a>
+          <a href="/privacy" data-i18n="footer.privacy">Privacy</a>
+          <a href="/terms" data-i18n="footer.terms">Terms</a>
           <a href="mailto:hello@readless.cc" data-i18n="footer.contact">Contact</a>
         </div>
       </div>
     </div>
   </footer>
 
-  <script src="/landing-assets/main.js?v=3"></script>
+  <script src="/landing-assets/main.js?v=4"></script>
 </body>
 </html>

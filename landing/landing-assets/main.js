@@ -60,10 +60,13 @@
 
       // Footer
       'footer.contact': 'Contact',
+      'footer.privacy': 'Privacy',
+      'footer.terms': 'Terms',
       'footer.copy': '© 2026 Readless',
 
       // Meta
       '_title': 'Readless — Turn any long read into a 30-second summary',
+      '_description': 'AI-powered macOS app that transforms long-form content into multi-level summaries and podcasts. Keyboard-first, built for speed.',
     },
     zh: {
       // Hero
@@ -119,10 +122,13 @@
 
       // Footer
       'footer.contact': '联系我们',
+      'footer.privacy': '隐私',
+      'footer.terms': '条款',
       'footer.copy': '© 2026 Readless',
 
       // Meta
       '_title': 'Readless — 将任何长文变成 30 秒摘要',
+      '_description': '面向 macOS 的 AI 阅读助手，将长内容转化为多层级摘要与播客。键盘优先，专为速度而生。',
     },
   }
 
@@ -141,8 +147,10 @@
     root.dataset.theme = theme
 
     // Update switch state
-    themeToggle.classList.toggle('toggle-switch--active', theme === 'light')
-    themeToggle.setAttribute('aria-checked', theme === 'light')
+    if (themeToggle) {
+      themeToggle.classList.toggle('toggle-switch--active', theme === 'light')
+      themeToggle.setAttribute('aria-checked', theme === 'light')
+    }
 
     // Update meta theme-color
     if (themeColorMeta) {
@@ -163,9 +171,11 @@
   setTheme(getTheme(), false)
 
   // Toggle handler
-  themeToggle.addEventListener('click', function () {
-    setTheme(getTheme() === 'dark' ? 'light' : 'dark', true)
-  })
+  if (themeToggle) {
+    themeToggle.addEventListener('click', function () {
+      setTheme(getTheme() === 'dark' ? 'light' : 'dark', true)
+    })
+  }
 
   // Listen for system theme changes (only when no manual preference)
   var mql = window.matchMedia('(prefers-color-scheme: light)')
@@ -192,9 +202,13 @@
     root.dataset.lang = lang
 
     // Update switch state
-    langToggle.classList.toggle('toggle-switch--active', lang === 'zh')
-    langToggle.setAttribute('aria-checked', lang === 'zh')
-    langLabel.textContent = lang === 'en' ? 'EN' : 'ZH'
+    if (langToggle) {
+      langToggle.classList.toggle('toggle-switch--active', lang === 'zh')
+      langToggle.setAttribute('aria-checked', lang === 'zh')
+    }
+    if (langLabel) {
+      langLabel.textContent = lang === 'en' ? 'EN' : 'ZH'
+    }
 
     // Update text content
     var strings = i18n[lang] || i18n.en
@@ -213,9 +227,17 @@
       }
     })
 
-    // Update page title
-    if (strings['_title']) {
-      document.title = strings['_title']
+    // Update page title / description if the page opted in.
+    var titleKey = document.body ? document.body.getAttribute('data-i18n-title') : null
+    var descriptionKey = document.body ? document.body.getAttribute('data-i18n-description') : null
+    if (titleKey && strings[titleKey]) {
+      document.title = strings[titleKey]
+    }
+    if (descriptionKey && strings[descriptionKey]) {
+      var descriptionMeta = document.querySelector('meta[name="description"]')
+      if (descriptionMeta) {
+        descriptionMeta.setAttribute('content', strings[descriptionKey])
+      }
     }
 
     if (save) {
@@ -227,9 +249,11 @@
   applyLang(getLang(), false)
 
   // Toggle handler
-  langToggle.addEventListener('click', function () {
-    applyLang(getLang() === 'en' ? 'zh' : 'en', true)
-  })
+  if (langToggle) {
+    langToggle.addEventListener('click', function () {
+      applyLang(getLang() === 'en' ? 'zh' : 'en', true)
+    })
+  }
 
   /* ── Scroll-triggered fade-in ── */
   var observer = new IntersectionObserver(
