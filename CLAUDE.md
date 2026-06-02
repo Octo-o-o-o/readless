@@ -17,6 +17,10 @@ Readless is an AI-powered macOS desktop app that ingests long-form content (arti
 - Nginx reverse proxy with Cloudflare Origin Certificate
 - API: `127.0.0.1:8001` (internal) → `https://readless.cc` (public)
 - Database: `127.0.0.1:5433` (internal PostgreSQL)
+- Co-hosted on 172 with OctoReport global, ClawButler, and local `octoreport-browserless` (`127.0.0.1:3002`). Keep Readless DB/API ports loopback-only and include Docker log rotation (`json-file` 100m x 3).
+- Do not point Readless or any overseas runtime dependency back to CN support services on `49.232`; overseas support must stay local or cloud-hosted.
+- **2026-06-01 v6.3 re-inspection**: `backend` stack (api/worker/db-pg17) healthy on 172, `readless.cc` public 200, DB/API ports loopback-only confirmed, local Browserless `127.0.0.1:3002` and overseas Redis `noeviction` verified; no cross-border dependency on `49.232`. No change needed. See `OctoReport/docs/SERVER_DEPLOYMENT_REDESIGN.md` v6.3.
+- **2026-06-02 v6.4 re-inspection**: still healthy — `backend-api`/`backend-worker`/`backend-db` all up (`backend-api`/`db` report `healthy`), `readless.cc` public 200, Docker logs capped/small (172 daemon `json-file 100m×3` + active host logrotate `maxsize 100M`), shared host `octoreport-redis`=`noeviction`. No Readless change. Host-level safe cleanup on 172: `docker builder prune -f` (~5.8G regenerable build cache) + removed leftover `/tmp/next-build-global*.tar.gz`, taking 172 from 39%→32% — all 11 containers stayed healthy, `readless.cc` stayed 200. See `OctoReport/docs/SERVER_DEPLOYMENT_REDESIGN.md` v6.4.
 
 ### Quick Health Check
 ```bash
