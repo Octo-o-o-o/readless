@@ -7,6 +7,8 @@
 **部署状态**: ✅ 已部署并运行（2026-03-01）
 **健康检查**: https://readless.cc/health
 
+> 2026-06-01 运维更新：172 现在同时承载 OctoReport global、ClawButler、Readless，以及本地 `octoreport-browserless` (`127.0.0.1:3002`)。Readless 的 API/DB 端口必须保持 loopback-only；Docker 日志基线为 `json-file` 100m x 3。不要新增指向中国 `49.232` 支撑层的运行时依赖。
+
 ### 本地开发建议
 
 **推荐做法**: 本地开发直接连接生产服务器，无需运行本地后端。
