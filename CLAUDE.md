@@ -111,12 +111,52 @@ See [DEPLOYMENT-RESULT.md](DEPLOYMENT-RESULT.md) for complete deployment documen
 
 ## Architecture
 
-### Two-Part System
+### Three-Part System
 
 - **`backend/`** — Python FastAPI server with PostgreSQL, deployed via Docker
 - **`macos/`** — Native SwiftUI macOS app, built with Swift Package Manager
+- **`landing/`** — Official website landing page (pure HTML/CSS/JS, served by nginx)
 
 The macOS client communicates with the backend over HTTPS using Bearer token auth (Clerk JWT).
+
+### Landing Page (`landing/`)
+
+Static website served by nginx at `https://readless.cc/`. Pure HTML/CSS/JS, no build step.
+
+```
+landing/
+├── index.html              # Main page (with FOUC prevention script in <head>)
+├── favicon.ico             # Site icon
+├── robots.txt              # Crawler rules
+├── landing-assets/         # CSS, JS (served at /landing-assets/)
+├── nginx-landing.conf      # Nginx config snippet
+└── deploy-landing.sh       # One-click deploy script
+```
+
+**Theme Switching:**
+- Dark (default) / Light via `[data-theme]` attribute on `<html>`
+- CSS Custom Properties in `:root` (dark) and `[data-theme="light"]` (light)
+- Default follows `prefers-color-scheme`, user choice persisted in localStorage
+- FOUC prevention: inline `<script>` in `<head>` syncs theme before first paint
+
+**i18n (EN/ZH):**
+- All text content has `data-i18n` or `data-i18n-html` attributes
+- Translations in `main.js` as `i18n = { en: {...}, zh: {...} }` object
+- Default follows `navigator.language`, user choice persisted in localStorage
+- `data-i18n` → `textContent`, `data-i18n-html` → `innerHTML` (for elements with HTML children)
+
+**Local preview:**
+```bash
+cd landing && python3 -m http.server 9123
+# Open http://localhost:9123
+```
+
+**Deploy to production:**
+```bash
+bash landing/deploy-landing.sh
+```
+
+**Nginx routing:** Landing page uses `location = /` and `location ^~ /landing-assets/` to serve static files. API routes (`/api/`, `/health`, `/docs`) continue to proxy to FastAPI.
 
 ### Backend Structure (`backend/app/`)
 

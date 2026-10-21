@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.content import Content
 from app.models.content_tag import ContentTag
 from app.models.user_tag import UserTag
-from app.schemas.content import ContentResponse
+from app.schemas.content import ContentListItemResponse
 from app.schemas.tag import UserTagResponse
 from app.services.content_response import (
     ContentResponseBuilder,
@@ -162,7 +162,7 @@ class TagService:
         *,
         user_id: str,
         tag_id: int,
-    ) -> list[ContentResponse]:
+    ) -> list[ContentListItemResponse]:
         tag = await self._get_active_tag(user_id=user_id, tag_id=tag_id)
         if tag is None:
             raise ValueError("Tag not found")
@@ -179,7 +179,7 @@ class TagService:
         if not contents:
             return []
 
-        return await self.response_builder.build_many(list(contents), self.db)
+        return await self.response_builder.build_list_items(list(contents), self.db)
 
     async def _get_active_tag(self, *, user_id: str, tag_id: int) -> UserTag | None:
         query = select(UserTag).where(

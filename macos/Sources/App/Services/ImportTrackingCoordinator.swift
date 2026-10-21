@@ -1,9 +1,9 @@
 import Foundation
 import Core
+import Networking
 
-@MainActor
-final class ImportTrackingCoordinator {
-    struct TrackingBehavior {
+actor ImportTrackingCoordinator {
+    struct TrackingBehavior: Sendable {
         var showResultOnReady: Bool
         var showFailureToast: Bool
         var keepsCapsule: Bool
@@ -41,12 +41,14 @@ final class ImportTrackingCoordinator {
         }
     }
 
+    typealias FetchStatusesHandler = ([String]) async throws -> [ContentStatusSnapshot]
     typealias FetchContentHandler = (String) async throws -> Content
     typealias PersistContentHandler = (Content) async -> Void
-    typealias ContentUpdateHandler = (Content) -> Void
-    typealias CompletionHandler = (Content, TrackingBehavior) -> Void
-    typealias PollingErrorHandler = (String, Error) -> Void
+    typealias ContentUpdateHandler = (Content) async -> Void
+    typealias CompletionHandler = (Content, TrackingBehavior) async -> Void
+    typealias PollingErrorHandler = (String, Error) async -> Void
 
+    private let fetchStatuses: FetchStatusesHandler
     private let fetchContent: FetchContentHandler
     private let persistContent: PersistContentHandler
     private let onContentUpdate: ContentUpdateHandler
@@ -55,11 +57,13 @@ final class ImportTrackingCoordinator {
     private let onPollingError: PollingErrorHandler
     private let pollingInterval: Duration
 
-    private var tasks: [String: Task<Void, Never>] = [:]
     private var behaviors: [String: TrackingBehavior] = [:]
+    private var lastSnapshots: [String: ContentStatusSnapshot] = [:]
+    private var pollingTask: Task<Void, Never>?
 
     init(
         pollingInterval: Duration = .seconds(2),
+        fetchStatuses: @escaping FetchStatusesHandler,
         fetchContent: @escaping FetchContentHandler,
         persistContent: @escaping PersistContentHandler,
         onContentUpdate: @escaping ContentUpdateHandler,
@@ -68,6 +72,7 @@ final class ImportTrackingCoordinator {
         onPollingError: @escaping PollingErrorHandler = { _, _ in }
     ) {
         self.pollingInterval = pollingInterval
+        self.fetchStatuses = fetchStatuses
         self.fetchContent = fetchContent
         self.persistContent = persistContent
         self.onContentUpdate = onContentUpdate
@@ -78,19 +83,13 @@ final class ImportTrackingCoordinator {
 
     func trackIfNeeded(_ content: Content, behavior: TrackingBehavior) {
         guard content.status == .pending || content.status == .processing else {
-            cancel(contentID: content.id)
+            cancelLocked(contentID: content.id)
             return
         }
 
         behaviors[content.id] = (behaviors[content.id] ?? .background).merged(with: behavior)
-
-        guard tasks[content.id] == nil else {
-            return
-        }
-
-        tasks[content.id] = Task { [weak self] in
-            await self?.pollUntilFinished(contentID: content.id)
-        }
+        lastSnapshots[content.id] = snapshot(from: content)
+        ensurePollingTask()
     }
 
     func resumeBackgroundTracking(for contents: [Content]) {
@@ -100,12 +99,15 @@ final class ImportTrackingCoordinator {
         )
 
         for content in contents where content.status == .pending || content.status == .processing {
-            trackIfNeeded(content, behavior: .background)
+            behaviors[content.id] = (behaviors[content.id] ?? .background).merged(with: .background)
+            lastSnapshots[content.id] = snapshot(from: content)
         }
 
-        for id in Array(tasks.keys) where !activeIDs.contains(id) {
-            cancel(contentID: id)
+        for id in Array(behaviors.keys) where !activeIDs.contains(id) {
+            cancelLocked(contentID: id)
         }
+
+        ensurePollingTask()
     }
 
     func disableInteractiveBehavior(contentID: String) {
@@ -118,48 +120,114 @@ final class ImportTrackingCoordinator {
     }
 
     func cancel(contentID: String) {
-        tasks[contentID]?.cancel()
-        tasks[contentID] = nil
-        behaviors[contentID] = nil
+        cancelLocked(contentID: contentID)
     }
 
     func cancelAll() {
-        for contentID in Array(tasks.keys) {
-            cancel(contentID: contentID)
+        for contentID in Array(behaviors.keys) {
+            cancelLocked(contentID: contentID)
         }
     }
 
-    private func pollUntilFinished(contentID: String) async {
+    private func cancelLocked(contentID: String) {
+        behaviors[contentID] = nil
+        lastSnapshots[contentID] = nil
+        if behaviors.isEmpty {
+            pollingTask?.cancel()
+            pollingTask = nil
+        }
+    }
+
+    private func ensurePollingTask() {
+        guard pollingTask == nil else { return }
+        pollingTask = Task {
+            await pollLoop()
+        }
+    }
+
+    private func pollLoop() async {
         defer {
-            tasks[contentID] = nil
+            pollingTask = nil
         }
 
         while !Task.isCancelled {
-            do {
-                let content = try await fetchContent(contentID)
-                onContentUpdate(content)
-                await persistContent(content)
+            let activeIDs = Array(behaviors.keys)
+            guard !activeIDs.isEmpty else { return }
 
-                switch content.status {
-                case .pending, .processing:
-                    try? await Task.sleep(for: pollingInterval)
-                case .ready:
-                    let behavior = behaviors[contentID] ?? .background
-                    behaviors[contentID] = nil
-                    onReady(content, behavior)
-                    return
-                case .failed:
-                    let behavior = behaviors[contentID] ?? .background
-                    behaviors[contentID] = nil
-                    onFailure(content, behavior)
-                    return
+            do {
+                let statusSnapshots = try await fetchStatuses(activeIDs)
+                let snapshotsByID = Dictionary(
+                    uniqueKeysWithValues: statusSnapshots.map { ($0.id, $0) }
+                )
+
+                for contentID in activeIDs {
+                    guard let snapshot = snapshotsByID[contentID] else {
+                        continue
+                    }
+                    guard hasMeaningfulChange(snapshot, comparedTo: lastSnapshots[contentID]) else {
+                        continue
+                    }
+
+                    lastSnapshots[contentID] = snapshot
+
+                    do {
+                        let content = try await fetchContent(contentID)
+                        await onContentUpdate(content)
+                        await persistContent(content)
+                        await handleTerminalStateIfNeeded(contentID: contentID, content: content)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        await onPollingError(contentID, error)
+                    }
                 }
+
+                try? await Task.sleep(for: pollingInterval)
             } catch is CancellationError {
                 return
             } catch {
-                onPollingError(contentID, error)
+                for contentID in activeIDs {
+                    await onPollingError(contentID, error)
+                }
                 try? await Task.sleep(for: pollingInterval)
             }
+        }
+    }
+
+    private func snapshot(from content: Content) -> ContentStatusSnapshot {
+        ContentStatusSnapshot(
+            id: content.id,
+            status: content.status,
+            updatedAt: content.updatedAt,
+            l0Summary: content.l0Summary,
+            processingError: nil
+        )
+    }
+
+    private func hasMeaningfulChange(
+        _ snapshot: ContentStatusSnapshot,
+        comparedTo previous: ContentStatusSnapshot?
+    ) -> Bool {
+        guard let previous else {
+            return true
+        }
+        return snapshot.status != previous.status
+            || snapshot.updatedAt != previous.updatedAt
+            || snapshot.l0Summary != previous.l0Summary
+            || snapshot.processingError != previous.processingError
+    }
+
+    private func handleTerminalStateIfNeeded(contentID: String, content: Content) async {
+        let behavior = behaviors[contentID] ?? .background
+        switch content.status {
+        case .pending, .processing:
+            return
+        case .ready:
+            cancelLocked(contentID: contentID)
+            await onReady(content, behavior)
+        case .failed:
+            cancelLocked(contentID: contentID)
+            await onFailure(content, behavior)
         }
     }
 }

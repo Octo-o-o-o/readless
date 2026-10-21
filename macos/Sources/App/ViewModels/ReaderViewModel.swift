@@ -36,14 +36,20 @@ final class ReaderViewModel {
     @ObservationIgnored
     private var activeContentID: String?
     @ObservationIgnored
-    private var importTracker: ImportTrackingCoordinator! = nil
+    private var contentUpdateObserver: NSObjectProtocol?
 
     init(api: APIClient? = nil, database: LocalDatabase? = nil) {
         self.repository = ContentRepository(
             api: api ?? .shared,
             database: database ?? .shared
         )
-        self.importTracker = makeImportTracker()
+        observeContentUpdates()
+    }
+
+    deinit {
+        if let contentUpdateObserver {
+            NotificationCenter.default.removeObserver(contentUpdateObserver)
+        }
     }
 
     /// Whether a translation is available
@@ -60,7 +66,6 @@ final class ReaderViewModel {
 
     func loadContent(contentID: String) async {
         activeContentID = contentID
-        importTracker.cancelAll()
 
         // Reset state for new content
         expandedDetails = [:]
@@ -89,7 +94,7 @@ final class ReaderViewModel {
             content = cached
             isLoadingContent = false
             cachedDetails = (try? await repository.fetchExpandedDetails(contentId: contentID)) ?? [:]
-            startPollingIfNeeded(for: cached)
+            await ContentManager.shared.trackContentIfNeeded(cached)
         }
 
         // 2. Fetch from API in background to get fresh data
@@ -101,7 +106,7 @@ final class ReaderViewModel {
             // Update local cache
             let userId = AuthService.shared.currentUser?.id.uuidString
             try? await repository.cacheContent(fresh, userId: userId)
-            startPollingIfNeeded(for: fresh)
+            await ContentManager.shared.trackContentIfNeeded(fresh)
         } catch is CancellationError {
             // Ignore canceled work when user quickly switches content.
         } catch {
@@ -109,10 +114,6 @@ final class ReaderViewModel {
             guard activeContentID == contentID else { return }
             isLoadingContent = false
         }
-    }
-
-    private func startPollingIfNeeded(for content: Content) {
-        importTracker.trackIfNeeded(content, behavior: .background)
     }
 
     func loadParagraphs(contentID: String) async {
@@ -305,29 +306,35 @@ final class ReaderViewModel {
         showingTranslation = show && hasTranslation
     }
 
-    private func makeImportTracker() -> ImportTrackingCoordinator {
-        ImportTrackingCoordinator(
-            fetchContent: { [repository] contentID in
-                try await repository.fetchContent(id: contentID)
-            },
-            persistContent: { [repository] content in
-                let userId = AuthService.shared.currentUser?.id.uuidString
-                try? await repository.cacheContent(content, userId: userId)
-            },
-            onContentUpdate: { [weak self] content in
-                guard let self, self.activeContentID == content.id else { return }
-                self.content = content
-            },
-            onReady: { [weak self] content, _ in
-                guard let self, self.activeContentID == content.id else { return }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    await self.loadParagraphs(contentID: content.id)
-                }
-            },
-            onFailure: { _, _ in },
-            onPollingError: { _, _ in }
-        )
+    private func observeContentUpdates() {
+        contentUpdateObserver = NotificationCenter.default.addObserver(
+            forName: .contentDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard
+                let self,
+                let updatedContent = notification.object as? Content
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.handleTrackedContentUpdate(updatedContent)
+            }
+        }
+    }
+
+    private func handleTrackedContentUpdate(_ updatedContent: Content) {
+        guard activeContentID == updatedContent.id else { return }
+        let previousStatus = content?.status
+        content = updatedContent
+
+        if updatedContent.status == .ready, previousStatus != .ready {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.loadParagraphs(contentID: updatedContent.id)
+            }
+        }
     }
 
     // MARK: - Keyboard Navigation

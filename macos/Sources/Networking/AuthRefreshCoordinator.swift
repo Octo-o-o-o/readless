@@ -19,11 +19,14 @@ public actor AuthRefreshCoordinator {
         }
 
         let refreshTask = Task<Bool, Never> { [notificationCenter, timeout] in
+            let refreshResults = Self.makeRefreshResultStream(
+                notificationCenter: notificationCenter
+            )
             await MainActor.run {
                 notificationCenter.post(name: .refreshAuthToken, object: nil)
             }
             return await Self.waitForRefreshResult(
-                notificationCenter: notificationCenter,
+                refreshResults: refreshResults,
                 timeout: timeout
             )
         }
@@ -34,16 +37,33 @@ public actor AuthRefreshCoordinator {
         return refreshed
     }
 
-    private static func waitForRefreshResult(
+    private static func makeRefreshResultStream(
         notificationCenter: NotificationCenter,
+    ) -> AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let observer = notificationCenter.addObserver(
+                forName: .authTokenRefreshCompleted,
+                object: nil,
+                queue: nil
+            ) { notification in
+                continuation.yield(notification.userInfo?["success"] as? Bool ?? false)
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                notificationCenter.removeObserver(observer)
+            }
+        }
+    }
+
+    private static func waitForRefreshResult(
+        refreshResults: AsyncStream<Bool>,
         timeout: Duration
     ) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                for await notification in notificationCenter.notifications(
-                    named: .authTokenRefreshCompleted
-                ) {
-                    return notification.userInfo?["success"] as? Bool ?? false
+                for await success in refreshResults {
+                    return success
                 }
                 return false
             }

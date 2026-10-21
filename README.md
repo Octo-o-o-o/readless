@@ -21,11 +21,11 @@ cd readless
 cd macos
 ./configure-backend.sh https://readless.cc
 
-# 3. Run the app
-swift run
+# 3. Open the macOS app project
+open Readless.xcodeproj
 
-# You should see:
-# [Readless] Using configured API base URL: https://readless.cc
+# Or build from the command line
+xcodebuild -project Readless.xcodeproj -scheme Readless -configuration Debug build
 ```
 
 ### Usage
@@ -74,7 +74,7 @@ macos/Sources/
 
 **URL**: https://readless.cc
 **Server**: Deployed on VPS with Docker Compose
-**Status**: [Check Health](https://readless.cc/health)
+**Status**: [Liveness](https://readless.cc/health) / [Readiness](https://readless.cc/health/ready)
 **API Docs**: https://readless.cc/docs
 
 ### Backend Features
@@ -93,20 +93,20 @@ macos/Sources/
 ```bash
 cd macos
 
-# Build
+# Validate shared Swift packages
 swift build
-
-# Run
-swift run
 
 # Run tests
 swift test
 
-# Release build
-swift build -c release
+# Open and run the app
+open Readless.xcodeproj
+
+# Or build the app from the command line
+xcodebuild -project Readless.xcodeproj -scheme Readless -configuration Release build
 ```
 
-The app will connect to the configured backend (production or localhost).
+`swift build` and `swift test` cover the shared package modules. The macOS app itself is launched from `Readless.xcodeproj`.
 
 ### Backend Development (Optional)
 
@@ -124,8 +124,11 @@ source venv/bin/activate
 # Install dependencies
 pip install -e ".[dev]"
 
-# Run dev server
+# Run API server
 uvicorn app.main:app --reload
+
+# Run content worker in a second terminal
+python -m app.worker
 
 # Run tests
 pytest tests/
@@ -146,7 +149,7 @@ defaults write com.readless.app apiBaseURL "http://localhost:8000"
 ```bash
 cd backend
 
-# Start services (PostgreSQL + API)
+# Start services (PostgreSQL + API + worker)
 docker compose up -d --build
 
 # View logs
@@ -162,7 +165,7 @@ docker compose down
 backend/app/
 ├── main.py           # FastAPI entry point
 ├── config.py         # Settings from .env
-├── auth.py           # Clerk JWT verification
+├── auth.py           # JWT authentication dependency
 ├── routers/          # API endpoints
 │   ├── content.py    # Content CRUD
 │   ├── podcast.py    # Podcast generation
@@ -258,7 +261,7 @@ The backend integrates with:
 
 - **OpenAI**: AI summarization and search (via SiliconFlow)
 - **ElevenLabs**: Text-to-speech for podcasts
-- **Clerk**: User authentication (JWT)
+- **Resend**: Email verification and one-time login codes
 - **Cloudflare R2**: Object storage for podcast audio
 - **PostgreSQL 17**: Primary database
 
@@ -298,7 +301,7 @@ See [DEPLOYMENT-RESULT.md](DEPLOYMENT-RESULT.md) for the latest deployment repor
 
 ## 📝 License
 
-[Your License Here]
+MIT. See [LICENSE](LICENSE).
 
 ---
 

@@ -79,8 +79,23 @@ docker-compose.override.yml
 
 # macOS app build artifacts
 macos/.sandbox-home/
+macos/.derived/
 macos/Readless.app/
 
 # Temporary docs
 ERROR_AUDIT.md
 IMPLEMENTATION_COMPLETE.md
+
+# Local tooling traces
+.agent-trace.jsonl
+.claude/
+.workflow/
+backend/.coverage
+macos/.wrangler/
+
+# Local design/export artifacts
+/AppIcon.appiconset/
+/live-site.png
+/nav-*.png
+/preview-*.png
+/readless_icon_2_*.png

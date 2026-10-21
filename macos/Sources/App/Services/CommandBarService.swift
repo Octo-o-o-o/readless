@@ -27,6 +27,11 @@ private struct SimpleMockProvider: AIProviderProtocol {
 
 @MainActor
 final class CommandBarService {
+    private enum SearchBudget {
+        static let minimumCharacters = 2
+        static let maximumLiveQueryCharacters = 240
+    }
+
     private let contentManager: ContentManager
     private let aiCoordinator: AICoordinator
     private let apiClient: APIClient
@@ -58,7 +63,7 @@ final class CommandBarService {
            let mode = SearchMode(rawValue: modeString) {
             return mode
         }
-        return .cloud  // Default to cloud search
+        return .local  // Default to local search
     }
 
     // Process user input with debouncing - handles both search and content import
@@ -66,14 +71,22 @@ final class CommandBarService {
         // Cancel previous search
         searchTask?.cancel()
 
-        guard !query.isEmpty else {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmed.isEmpty else {
             showQuickActions()
+            return
+        }
+
+        guard trimmed.count >= SearchBudget.minimumCharacters else {
+            aiCoordinator.commandResults = []
+            aiCoordinator.isLoading = false
             return
         }
 
         // Debounce 300ms
         searchTask = Task {
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(180))
 
             guard !Task.isCancelled else { return }
 
@@ -149,21 +162,27 @@ final class CommandBarService {
     }
 
     private func performSearch(_ query: String) async {
+        let normalizedQuery = normalizedSearchQuery(query)
+        guard normalizedQuery.count >= SearchBudget.minimumCharacters else {
+            aiCoordinator.commandResults = []
+            return
+        }
+
         // Route to appropriate search based on mode
         switch searchMode {
         case .cloud:
-            await performCloudSearch(query)
+            await performCloudSearch(normalizedQuery)
         case .local:
-            await performLocalSearch(query)
+            await performLocalSearch(normalizedQuery)
         }
     }
 
     /// Cloud-based AI search (PostgreSQL FTS + OpenAI)
     private func performCloudSearch(_ query: String) async {
         do {
-            let result = try await apiClient.search(query: query)
+            let sources = try await apiClient.searchRetrieve(query: query)
 
-            if result.sources.isEmpty {
+            if sources.isEmpty {
                 // No results - suggest importing as new content
                 aiCoordinator.commandResults = [
                     CommandResult(
@@ -175,17 +194,13 @@ final class CommandBarService {
                     }
                 ]
             } else {
-                // Show AI answer + sources
-                aiCoordinator.commandResults = result.sources.prefix(10).map { source in
+                aiCoordinator.commandResults = sources.prefix(10).map { source in
                     CommandResult(
                         title: source.title,
                         subtitle: source.l0Summary ?? "Click to open",
                         icon: "doc.text"
                     ) {
-                        NotificationCenter.default.post(
-                            name: Notification.Name("openContent"),
-                            object: source.id
-                        )
+                        self.aiCoordinator.requestOpenContent(source.id)
                     }
                 }
             }
@@ -207,7 +222,7 @@ final class CommandBarService {
             let result = try await localSearch.search(query: query)
 
             if result.results.isEmpty {
-                // No results - suggest importing as new content
+                // No results - suggest importing or explicitly escalating to cloud.
                 aiCoordinator.commandResults = [
                     CommandResult(
                         title: "No results in local cache",
@@ -215,22 +230,22 @@ final class CommandBarService {
                         icon: "doc.badge.plus"
                     ) {
                         await self.importText(query)
-                    }
+                    },
+                    makeCloudSearchResult(for: query)
                 ]
             } else {
                 // Convert to command results
-                aiCoordinator.commandResults = result.results.prefix(10).map { item in
+                var results = result.results.prefix(10).map { item in
                     CommandResult(
                         title: item.title,
                         subtitle: item.snippet,
                         icon: "doc.text"
                     ) {
-                        NotificationCenter.default.post(
-                            name: Notification.Name("openContent"),
-                            object: item.id
-                        )
+                        self.aiCoordinator.requestOpenContent(item.id)
                     }
                 }
+                results.append(makeCloudSearchResult(for: query))
+                aiCoordinator.commandResults = results
             }
         } catch {
             aiCoordinator.errorMessage = "Local search failed. Please try again."
@@ -317,6 +332,27 @@ final class CommandBarService {
             return "Could not connect. Please check your internet connection."
         }
         return "Import failed. Please try again."
+    }
+
+    private func normalizedSearchQuery(_ query: String) -> String {
+        let collapsed = query
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        if collapsed.count <= SearchBudget.maximumLiveQueryCharacters {
+            return collapsed
+        }
+        return String(collapsed.prefix(SearchBudget.maximumLiveQueryCharacters))
+    }
+
+    private func makeCloudSearchResult(for query: String) -> CommandResult {
+        CommandResult(
+            title: "Search in cloud",
+            subtitle: "Semantic search with server index",
+            icon: "cloud.fill"
+        ) {
+            await self.performCloudSearch(query)
+        }
     }
 
 }

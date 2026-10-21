@@ -1,4 +1,17 @@
 #!/bin/bash
+# DEPRECATED: This script is no longer needed.
+# Use Xcode instead: open Readless.xcodeproj and press Cmd+R.
+# Xcode automatically manages signing, provisioning profiles, and .app bundles.
+#
+# If the .xcodeproj is missing, regenerate it: xcodegen generate
+echo "⚠️  sign.sh is deprecated. Use Xcode instead:"
+echo "    open Readless.xcodeproj   # then Cmd+R"
+echo ""
+echo "  Or build from command line:"
+echo "    xcodebuild -project Readless.xcodeproj -scheme Readless -configuration Debug build"
+exit 1
+
+# --- Legacy script below (kept for reference) ---
 # sign.sh — Build Readless as a proper .app bundle with Sign in with Apple support.
 #
 # Why a bundle? The com.apple.developer.applesignin entitlement is a privileged

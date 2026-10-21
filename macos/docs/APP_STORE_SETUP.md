@@ -288,8 +288,8 @@ Test the subscription flow before going live using Apple's Sandbox environment.
 2. **Build and Run App**
    ```bash
    cd /Users/wangyixiao/WorkSpace/readless/macos
-   swift build -c release
-   swift run App
+   xcodebuild -project Readless.xcodeproj -scheme Readless -configuration Release build
+   open Readless.xcodeproj
    ```
 
 3. **Trigger Purchase Flow**
@@ -321,7 +321,7 @@ Test the subscription flow before going live using Apple's Sandbox environment.
 #### Test 2: Restore Purchases
 
 1. Sign out of app (clear auth token)
-2. Sign back in with same Clerk account
+2. Sign back in with the same Readless account
 3. Tap "Restore Purchases" button
 4. **Expected**:
    - StoreKit restores subscription

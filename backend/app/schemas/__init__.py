@@ -23,7 +23,9 @@ from app.schemas.auth import (
 )
 from app.schemas.content import (
     ContentCreateRequest,
+    ContentListItemResponse,
     ContentResponse,
+    ContentStatusResponse,
     ExpandRequest,
     FollowUpRequest,
     TextResponse,
@@ -68,7 +70,9 @@ __all__ = [
     "DeleteAccountRequest",
     # Content schemas
     "ContentCreateRequest",
+    "ContentListItemResponse",
     "ContentResponse",
+    "ContentStatusResponse",
     "ExpandRequest",
     "FollowUpRequest",
     "TextResponse",

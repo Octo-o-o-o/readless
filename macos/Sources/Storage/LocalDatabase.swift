@@ -10,13 +10,28 @@ public final class LocalDatabase {
     /// Singleton instance using default production database path.
     public static let shared: LocalDatabase = {
         let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard let appSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            preconditionFailure(
+                "LocalDatabase initialization failed: missing Application Support directory."
+            )
+        }
         let dbFolder = appSupport.appendingPathComponent("Readless", isDirectory: true)
 
-        try? fileManager.createDirectory(at: dbFolder, withIntermediateDirectories: true)
         let dbPath = dbFolder.appendingPathComponent("readless.db").path
-
-        return try! LocalDatabase(path: dbPath)
+        do {
+            try fileManager.createDirectory(
+                at: dbFolder,
+                withIntermediateDirectories: true
+            )
+            return try LocalDatabase(path: dbPath)
+        } catch {
+            preconditionFailure(
+                "LocalDatabase initialization failed for \(dbPath): \(error)"
+            )
+        }
     }()
 
     /// Initialize with custom database path (useful for testing with ":memory:").
@@ -191,11 +206,16 @@ public final class LocalDatabase {
     /// If userId is provided, it will be set on the content before saving.
     public func saveContent(_ content: Content, userId: String? = nil) async throws {
         try await dbQueue.write { db in
-            var mutableContent = content
-            if let userId = userId {
-                mutableContent.userId = userId
+            let existingRecord = try ContentRecord.fetchOne(db, key: content.id)
+            let mergedRecord = ContentRecord(
+                merging: content,
+                existing: existingRecord,
+                userId: userId
+            )
+            guard existingRecord != mergedRecord else {
+                return
             }
-            try ContentRecord(from: mutableContent).save(db)
+            try mergedRecord.save(db)
         }
     }
 
@@ -203,12 +223,25 @@ public final class LocalDatabase {
     public func saveContents(_ contents: [Content], userId: String? = nil) async throws {
         guard !contents.isEmpty else { return }
         try await dbQueue.write { db in
+            let contentIDs = contents.map(\.id)
+            let existingRecords = try ContentRecord
+                .filter(contentIDs.contains(Column("id")))
+                .fetchAll(db)
+            let existingByID = Dictionary(
+                uniqueKeysWithValues: existingRecords.map { ($0.id, $0) }
+            )
+
             for content in contents {
-                var mutableContent = content
-                if let userId = userId {
-                    mutableContent.userId = userId
+                let existingRecord = existingByID[content.id]
+                let mergedRecord = ContentRecord(
+                    merging: content,
+                    existing: existingRecord,
+                    userId: userId
+                )
+                guard existingRecord != mergedRecord else {
+                    continue
                 }
-                try ContentRecord(from: mutableContent).save(db)
+                try mergedRecord.save(db)
             }
         }
     }

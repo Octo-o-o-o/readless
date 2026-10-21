@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Readless Privacy Policy</title>
+  <meta name="description" content="Privacy Policy for Readless, including how account data, imported content, subscriptions, and AI-generated outputs are handled.">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/landing-assets/style.css?v=4">
+  <meta name="theme-color" content="#000000">
+  <script>
+    (function(){
+      var d=document.documentElement,s=localStorage.getItem('theme');
+      d.dataset.theme=s||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');
+      var m=document.querySelector('meta[name="theme-color"]');
+      if(m)m.setAttribute('content',d.dataset.theme==='light'?'#ffffff':'#000000');
+    })();
+  </script>
+</head>
+<body class="legal-page">
+  <nav class="nav" role="navigation" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a href="/" class="nav-logo" aria-label="Readless home">
+        <img src="/landing-assets/icon-dark.png" alt="Readless" class="nav-logo-icon" width="28" height="28">
+        Readless
+      </a>
+      <div class="nav-controls">
+        <button class="toggle-switch" id="theme-toggle" type="button" role="switch" aria-label="Toggle dark/light theme">
+          <span class="toggle-switch__icon" id="theme-icon">
+            <svg class="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg class="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </span>
+          <span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span>
+        </button>
+        <a href="/downloads/Readless-1.0.dmg" class="nav-cta">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Download</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="page-shell">
+    <section class="page-hero">
+      <p class="section-label fade-in">Legal</p>
+      <h1 class="page-title fade-in">Privacy Policy</h1>
+      <p class="page-meta fade-in">Effective March 27, 2026</p>
+      <p class="page-intro fade-in">
+        This Privacy Policy explains how Readless collects, uses, stores, and shares information when you use the Readless macOS app, the website at <a href="https://readless.cc">readless.cc</a>, and related services.
+      </p>
+      <a href="/" class="page-back fade-in">Back to Home</a>
+    </section>
+
+    <section class="section section--tight">
+      <div class="container legal-grid">
+        <article class="legal-card fade-in">
+          <h2>1. Information We Collect</h2>
+          <div class="legal-copy">
+            <p>We collect only the information needed to run Readless and deliver the features you request.</p>
+            <ul class="legal-list">
+              <li><strong>Account information.</strong> If you sign in, we may collect your email address, email verification status, Apple Sign In identifier, and basic account profile information.</li>
+              <li><strong>Subscription information.</strong> If you purchase a subscription through Apple, we receive subscription status, product identifiers, transaction identifiers, renewal state, and expiration dates. Apple handles your payment details directly.</li>
+              <li><strong>Content you import.</strong> Readless processes URLs, pasted text, PDFs, images, prompts, follow-up questions, summaries, tags, and generated podcast scripts or audio that you request through the app.</li>
+              <li><strong>Technical and usage information.</strong> We may collect IP address, device or app version, request IDs, timestamps, error logs, and service events needed to secure and operate the product.</li>
+              <li><strong>On-device data.</strong> The app may keep local cache data, login tokens, and settings on your Mac, including secure storage in Keychain where appropriate.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>2. How We Use Information</h2>
+          <div class="legal-copy">
+            <p>We use information to provide, maintain, and improve Readless. This includes:</p>
+            <ul class="legal-list">
+              <li>authenticating you and keeping your session active;</li>
+              <li>extracting, summarizing, indexing, translating, and transforming content you ask us to process;</li>
+              <li>generating AI podcasts and storing audio files for playback;</li>
+              <li>verifying subscriptions and handling account support requests;</li>
+              <li>monitoring reliability, debugging failures, enforcing rate limits, and preventing abuse.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>3. Third-Party Processors</h2>
+          <div class="legal-copy">
+            <p>To run Readless, we rely on a small number of infrastructure and AI vendors. Depending on the feature you use, imported content and related metadata may be processed by:</p>
+            <ul class="legal-list">
+              <li><strong>OpenAI-compatible model providers</strong> for summarization, search, translation, and other AI generation tasks;</li>
+              <li><strong>ElevenLabs</strong> for text-to-speech podcast generation;</li>
+              <li><strong>Cloudflare R2 and related infrastructure providers</strong> for storing generated audio and delivering the website;</li>
+              <li><strong>Resend</strong> for transactional email such as one-time login codes or verification emails;</li>
+              <li><strong>Apple</strong> for Sign in with Apple, App Store subscriptions, and receipt validation.</li>
+            </ul>
+            <p>These providers process data on our behalf to the extent needed to provide the service you requested.</p>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>4. Storage and Retention</h2>
+          <div class="legal-copy">
+            <p>We keep account, content, and subscription data for as long as needed to operate your account, provide the app, comply with legal obligations, resolve disputes, and enforce our agreements.</p>
+            <p>Generated content may remain stored until you delete it, your account is deleted, or retention is no longer necessary for service operation. Local app cache on your Mac may remain until you clear it from the app or uninstall Readless.</p>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>5. How We Share Information</h2>
+          <div class="legal-copy">
+            <p>We do not sell your personal information. We may share information only in these limited cases:</p>
+            <ul class="legal-list">
+              <li>with service providers and subprocessors described above;</li>
+              <li>to comply with law, legal process, or valid government requests;</li>
+              <li>to protect the rights, safety, security, and integrity of Readless, our users, or the public;</li>
+              <li>as part of a merger, acquisition, or asset transfer, subject to applicable safeguards.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>6. Your Choices</h2>
+          <div class="legal-copy">
+            <ul class="legal-list">
+              <li>You can choose what content to upload and should avoid submitting highly sensitive personal data unless you are comfortable with cloud processing.</li>
+              <li>You can cancel paid subscriptions through your App Store account settings.</li>
+              <li>You can clear local caches from the Readless app.</li>
+              <li>You can request account deletion or data deletion by contacting us at <a href="mailto:hello@readless.cc">hello@readless.cc</a>.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>7. International Processing</h2>
+          <div class="legal-copy">
+            <p>Readless and its service providers may process data in countries other than your own. By using the service, you understand that data may be transferred to and processed in locations where privacy laws may differ from those in your jurisdiction.</p>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>8. Children’s Privacy</h2>
+          <div class="legal-copy">
+            <p>Readless is not directed to children under 13, and we do not knowingly collect personal information from children under 13. If you believe a child has provided us personal information, contact us and we will investigate.</p>
+          </div>
+        </article>
+
+        <article class="legal-card fade-in">
+          <h2>9. Changes and Contact</h2>
+          <div class="legal-copy">
+            <p>We may update this Privacy Policy from time to time. If we make a material change, we will update the effective date on this page.</p>
+            <p>Questions about privacy can be sent to <a href="mailto:hello@readless.cc">hello@readless.cc</a>.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+      <div class="footer-inner">
+        <p class="footer-left">© 2026 Readless</p>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/terms">Terms</a>
+          <a href="https://github.com/Octo-o-o-o/readless" target="_blank" rel="noopener">GitHub</a>
+          <a href="mailto:hello@readless.cc">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/landing-assets/main.js?v=4"></script>
+</body>
+</html>

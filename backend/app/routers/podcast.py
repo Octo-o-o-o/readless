@@ -62,6 +62,7 @@ async def get_podcast(
         select(Podcast)
         .where(Podcast.content_id == content_id)
         .order_by(Podcast.created_at.desc())
+        .limit(1)
     )
     podcast = result.scalar_one_or_none()
     if not podcast:

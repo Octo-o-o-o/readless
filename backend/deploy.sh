@@ -77,8 +77,8 @@ else
 fi
 
 echo ""
-echo "🚀 步骤4: 启动API服务..."
-$DOCKER_COMPOSE -f docker-compose.prod.yml up -d api
+echo "🚀 步骤4: 启动API和Worker服务..."
+$DOCKER_COMPOSE -f docker-compose.prod.yml up -d api worker
 
 echo ""
 echo "⏳ 等待API服务启动..."
@@ -95,8 +95,9 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     else
         RETRY_COUNT=$((RETRY_COUNT+1))
         if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            echo -e "${RED}❌ API服务启动失败，查看日志：$DOCKER_COMPOSE -f docker-compose.prod.yml logs api${NC}"
+            echo -e "${RED}❌ API服务启动失败，查看日志：$DOCKER_COMPOSE -f docker-compose.prod.yml logs api worker${NC}"
             $DOCKER_COMPOSE -f docker-compose.prod.yml logs --tail=50 api
+            $DOCKER_COMPOSE -f docker-compose.prod.yml logs --tail=50 worker
             exit 1
         fi
         echo "等待API启动... ($RETRY_COUNT/$MAX_RETRIES)"
@@ -120,6 +121,7 @@ echo "  3. 查看API文档: https://readless.cc/docs"
 echo ""
 echo "🔧 常用命令："
 echo "  查看日志: $DOCKER_COMPOSE -f docker-compose.prod.yml logs -f"
+echo "  Worker日志: $DOCKER_COMPOSE -f docker-compose.prod.yml logs -f worker"
 echo "  重启服务: $DOCKER_COMPOSE -f docker-compose.prod.yml restart"
 echo "  停止服务: $DOCKER_COMPOSE -f docker-compose.prod.yml down"
 echo "  备份数据: $DOCKER_COMPOSE -f docker-compose.prod.yml exec db pg_dump -U readless readless > backup.sql"

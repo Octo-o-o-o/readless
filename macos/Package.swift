@@ -8,11 +8,23 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "App", targets: ["App"])
+        // Library modules consumed by the Xcode app target
+        .library(name: "Core", targets: ["Core"]),
+        .library(name: "LiquidGlassKit", targets: ["LiquidGlassKit"]),
+        .library(name: "Networking", targets: ["Networking"]),
+        .library(name: "Storage", targets: ["Storage"]),
+        .library(name: "AIServices", targets: ["AIServices"]),
+        .library(name: "ReaderFeature", targets: ["ReaderFeature"]),
+        .library(name: "LibraryFeature", targets: ["LibraryFeature"]),
+        .library(name: "Utils", targets: ["Utils"]),
+        .library(name: "UI", targets: ["UI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "2.0.0")
+        .package(
+            url: "https://github.com/sindresorhus/KeyboardShortcuts.git",
+            from: "2.0.0"
+        )
     ],
     targets: [
         // MARK: - Core (zero dependencies)
@@ -86,32 +98,9 @@ let package = Package(
             path: "Sources/LibraryFeature"
         ),
 
-        // MARK: - App (executable)
-        .executableTarget(
-            name: "App",
-            dependencies: [
-                "Core",
-                "LiquidGlassKit",
-                "Networking",
-                "Storage",
-                "AIServices",
-                "ReaderFeature",
-                "LibraryFeature",
-                "Utils",
-                "UI", // Keep UI for gradual migration
-                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
-            ],
-            path: "Sources/App",
-            exclude: ["Resources", "Services/README_SuggestionEngine.md"],
-            linkerSettings: [
-                .unsafeFlags([
-                    "-Xlinker", "-sectcreate",
-                    "-Xlinker", "__TEXT",
-                    "-Xlinker", "__info_plist",
-                    "-Xlinker", "Sources/App/Resources/Info.plist"
-                ])
-            ]
-        ),
+        // MARK: - App sources are built by the Xcode project (Readless.xcodeproj)
+        // The Xcode target references Sources/App/ directly and handles
+        // signing, entitlements, and .app bundle creation automatically.
 
         // MARK: - Tests
         .testTarget(

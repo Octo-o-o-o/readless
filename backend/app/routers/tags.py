@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user_id
 from app.database import get_db
-from app.schemas.content import ContentResponse
+from app.schemas.content import ContentListItemResponse
 from app.schemas.tag import (
     ContentTagsUpdateRequest,
     TagCreateRequest,
@@ -98,12 +98,12 @@ async def update_content_tags(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.get("/{tag_id}/contents", response_model=list[ContentResponse])
+@router.get("/{tag_id}/contents", response_model=list[ContentListItemResponse])
 async def get_contents_by_tag(
     tag_id: int,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
-) -> list[ContentResponse]:
+) -> list[ContentListItemResponse]:
     """Get all content items with a specific tag."""
     try:
         return await _get_tag_service(db).get_contents_by_tag(

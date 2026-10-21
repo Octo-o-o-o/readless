@@ -1,5 +1,7 @@
 """SQLAdmin configuration for Readless admin dashboard."""
 
+import hmac
+
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
@@ -31,7 +33,10 @@ class AdminAuth(AuthenticationBackend):
         password = form.get("password")
 
         # Password must match ADMIN_TOKEN
-        if password == settings.admin_token:
+        if isinstance(password, str) and hmac.compare_digest(
+            password,
+            settings.admin_token,
+        ):
             request.session.update({"authenticated": True})
             return True
 
@@ -218,7 +223,6 @@ class PasswordResetTokenAdmin(ModelView, model=PasswordResetToken):
     column_details_list = [
         PasswordResetToken.id,
         PasswordResetToken.user_id,
-        PasswordResetToken.token,
         PasswordResetToken.expires_at,
         PasswordResetToken.created_at,
         PasswordResetToken.used_at,

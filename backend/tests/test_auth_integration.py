@@ -13,15 +13,21 @@ All tests use in-memory SQLite database and mock external services.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 
 from app.auth_utils import create_refresh_token
-from app.models.refresh_token import EmailLoginCode, RefreshToken
+from app.models.refresh_token import EmailLoginCode, PasswordResetToken, RefreshToken
 from app.models.user import User
-from app.services.auth_service import _hash_refresh_token
+from app.services.auth_service import (
+    AuthService,
+    _hash_email_verification_token,
+    _hash_password_reset_token,
+    _hash_refresh_token,
+)
 
 # ==================== Registration Tests ====================
 
@@ -58,6 +64,7 @@ async def test_complete_registration_flow(test_client, auth_db_session):
     assert user.trial_expires_at is not None
     assert user.email_verified is False
     assert user.email_verification_token is not None
+    assert len(user.email_verification_token) == 64
 
     # Verify trial period is ~7 days
     # SQLite doesn't preserve timezone info, so make trial_expires_at aware
@@ -111,6 +118,30 @@ async def test_registration_with_weak_password(test_client):
 
     assert response.status_code == 400
     assert "password" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_registration_sends_verification_email_when_delivery_configured(
+    test_client,
+    mock_verification_email,
+):
+    """Configured registration should dispatch a verification email."""
+    with patch("app.routers.auth.settings.resend_api_key", "resend-key"), patch(
+        "app.routers.auth.settings.resend_from_email",
+        "noreply@readless.test",
+    ):
+        response = await test_client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "verify-send@example.com",
+                "password": "SecurePass123!",
+            },
+        )
+
+    assert response.status_code == 201
+    assert len(mock_verification_email) == 1
+    assert mock_verification_email[0][0] == "verify-send@example.com"
+    assert mock_verification_email[0][1]
 
 
 # ==================== Login Tests ====================
@@ -489,6 +520,184 @@ def test_refresh_token_admin_hides_token_value():
     from app.admin import RefreshTokenAdmin
 
     assert RefreshToken.token not in RefreshTokenAdmin.column_details_list
+
+
+def test_password_reset_token_admin_hides_token_value():
+    """Password reset token secrets should not be exposed in the admin detail view."""
+    from app.admin import PasswordResetTokenAdmin
+
+    assert PasswordResetToken.token not in PasswordResetTokenAdmin.column_details_list
+
+
+@pytest.mark.asyncio
+async def test_password_reset_tokens_are_hashed_at_rest(auth_db_session):
+    """Password reset flow should store only a hash while accepting the raw token."""
+    from app.services.auth_service import AuthService
+
+    user = User(
+        email="reset@example.com",
+        password_hash="dummy-hash",
+        subscription_tier="trial",
+    )
+    auth_db_session.add(user)
+    await auth_db_session.commit()
+    await auth_db_session.refresh(user)
+
+    auth_service = AuthService(auth_db_session)
+    raw_token = await auth_service.create_password_reset_token(user.email)
+
+    result = await auth_db_session.execute(select(PasswordResetToken))
+    token_record = result.scalar_one()
+    assert token_record.token == _hash_password_reset_token(raw_token)
+
+
+@pytest.mark.asyncio
+async def test_email_verification_tokens_are_hashed_at_rest(auth_db_session):
+    """Email verification should store only a hash while returning the raw token."""
+    from app.services.auth_service import AuthService
+
+    auth_service = AuthService(auth_db_session)
+    user, raw_token = await auth_service.register_user(
+        email="verify@example.com",
+        password="SecurePass123!",
+    )
+
+    await auth_db_session.refresh(user)
+    assert user.email_verification_token == _hash_email_verification_token(raw_token)
+
+
+@pytest.mark.asyncio
+async def test_verify_email_accepts_raw_token_against_hashed_storage(auth_db_session):
+    """Email verification should succeed when the database stores only a hash."""
+    from app.services.auth_service import AuthService
+
+    auth_service = AuthService(auth_db_session)
+    user, raw_token = await auth_service.register_user(
+        email="verify-raw@example.com",
+        password="SecurePass123!",
+    )
+
+    verified_user = await auth_service.verify_email(raw_token)
+    assert verified_user.id == user.id
+    assert verified_user.email_verified is True
+    assert verified_user.email_verification_token is None
+
+
+@pytest.mark.asyncio
+async def test_verify_email_endpoint_marks_user_verified(
+    test_client,
+    auth_db_session,
+):
+    """Public verify-email route should activate the user token."""
+    auth_service = AuthService(auth_db_session)
+    _, raw_token = await auth_service.register_user(
+        email="verify-endpoint@example.com",
+        password="SecurePass123!",
+    )
+
+    response = await test_client.post(
+        "/api/v1/auth/email/verify",
+        json={"token": raw_token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Email verified successfully."
+
+    result = await auth_db_session.execute(
+        select(User).where(User.email == "verify-endpoint@example.com")
+    )
+    user = result.scalar_one()
+    assert user.email_verified is True
+    assert user.email_verification_token is None
+
+
+@pytest.mark.asyncio
+async def test_verify_email_browser_route_marks_user_verified(
+    test_client,
+    auth_db_session,
+):
+    """Browser verification route should render success and consume the token."""
+    auth_service = AuthService(auth_db_session)
+    _, raw_token = await auth_service.register_user(
+        email="verify-browser@example.com",
+        password="SecurePass123!",
+    )
+
+    response = await test_client.get(
+        "/api/v1/auth/email/verify",
+        params={"token": raw_token},
+    )
+
+    assert response.status_code == 200
+    assert "Email verified" in response.text
+    assert "close this tab" in response.text
+
+    result = await auth_db_session.execute(
+        select(User).where(User.email == "verify-browser@example.com")
+    )
+    user = result.scalar_one()
+    assert user.email_verified is True
+    assert user.email_verification_token is None
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_endpoint_sends_new_token(
+    test_client,
+    auth_db_session,
+    mock_verification_email,
+):
+    """Resend endpoint should generate and deliver a fresh verification token."""
+    auth_service = AuthService(auth_db_session)
+    user, original_token = await auth_service.register_user(
+        email="resend@example.com",
+        password="SecurePass123!",
+    )
+
+    response = await test_client.post(
+        "/api/v1/auth/email/resend-verification",
+        json={"email": "resend@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Verification email sent."
+    assert len(mock_verification_email) == 1
+    assert mock_verification_email[0][0] == "resend@example.com"
+    assert mock_verification_email[0][1] != original_token
+
+    await auth_db_session.refresh(user)
+    assert user.email_verification_token == _hash_email_verification_token(
+        mock_verification_email[0][1]
+    )
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_preserves_existing_token_on_delivery_failure(
+    test_client,
+    auth_db_session,
+):
+    """Failed delivery should not invalidate the user's previous verification link."""
+    auth_service = AuthService(auth_db_session)
+    user, original_token = await auth_service.register_user(
+        email="resend-failure@example.com",
+        password="SecurePass123!",
+    )
+
+    with patch(
+        "app.services.email_service.ResendEmailService.send_verification_email",
+        side_effect=ValueError("delivery failed"),
+    ):
+        response = await test_client.post(
+            "/api/v1/auth/email/resend-verification",
+            json={"email": "resend-failure@example.com"},
+        )
+
+    assert response.status_code == 400
+    assert "delivery failed" in response.json()["detail"].lower()
+
+    await auth_db_session.refresh(user)
+    assert user.email_verification_token == _hash_email_verification_token(
+        original_token
+    )
 
 
 @pytest.mark.asyncio

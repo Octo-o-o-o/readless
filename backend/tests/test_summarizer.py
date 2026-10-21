@@ -39,7 +39,12 @@ class TestOutlinePointSchema:
     def test_outline_point_serialization(self) -> None:
         point = OutlinePoint(point="Idea", anchors=["¶1"])
         data = point.model_dump()
-        assert data == {"point": "Idea", "anchors": ["¶1"], "detail": None}
+        assert data == {
+            "id": None,
+            "point": "Idea",
+            "anchors": ["¶1"],
+            "detail": None,
+        }
 
     def test_outline_point_missing_field(self) -> None:
         with pytest.raises(Exception):

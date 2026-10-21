@@ -34,6 +34,7 @@ Produce a JSON object with exactly these keys:
     - "anchors": an array of source paragraph markers (e.g. ["¶1", "¶3"]).
 - "tags": 3-5 topic tags.
 - "keywords": 5-10 keywords.
+- "language_code": source language ISO 639-1 code like "en", "zh", or "ja".
 
 Return ONLY the JSON object. No markdown, no code blocks."""
 
@@ -98,6 +99,11 @@ class SummarizationService:
         text = re.sub(r"\n?```\s*$", "", text)
         return text.strip()
 
+    @staticmethod
+    def _fallback_language_code(text: str) -> str:
+        has_chinese = any("\u4e00" <= c <= "\u9fff" for c in text[:500])
+        return "zh" if has_chinese else "en"
+
     # ------------------------------------------------------------------ #
     #  L0 + L1: Summarize
     # ------------------------------------------------------------------ #
@@ -131,6 +137,9 @@ class SummarizationService:
         cleaned = self._strip_code_fences(raw_text)
         data = json.loads(cleaned)
 
+        detected_language = data.get("language_code") or self._fallback_language_code(
+            content.full_text
+        )
         summary = ContentSummary(
             l0_summary=data["l0_summary"],
             l1_outline=[
@@ -139,12 +148,8 @@ class SummarizationService:
             ],
             tags=data["tags"],
             keywords=data["keywords"],
+            language_code=detected_language,
         )
-
-        # Detect language from L0 summary
-        from app.services.translator import _get_service
-        translator = _get_service()
-        detected_language = await translator.detect_language(summary.l0_summary)
         logger.info("Detected content language: %s", detected_language)
 
         return summary, detected_language
@@ -330,6 +335,7 @@ Return a JSON object with:
 {outline_instruction}
 {tag_instruction}
 - "keywords": 5-10 keywords.
+- "language_code": source language ISO 639-1 code like "en", "zh", or "ja".
 
 Return ONLY the JSON object. No markdown, no code blocks."""
 
@@ -375,6 +381,8 @@ Return ONLY the JSON object. No markdown, no code blocks."""
             l1_outline=outline,
             tags=data.get("tags", []),
             keywords=data.get("keywords", []),
+            language_code=data.get("language_code")
+            or self._fallback_language_code(full_text),
         )
 
 

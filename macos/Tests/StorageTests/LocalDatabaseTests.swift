@@ -149,4 +149,35 @@ final class LocalDatabaseTests: XCTestCase {
         let missing = try await database.fetchContent(id: "nonexistent")
         XCTAssertNil(missing)
     }
+
+    func testSaveContentPreservesHydratedFieldsWhenMetadataUpdateOmitsThem() async throws {
+        let hydrated = Content(
+            id: "hydrated-1",
+            title: "Hydrated Content",
+            sourceType: .text,
+            l0Summary: "Detailed summary",
+            l1Outline: [
+                OutlinePoint(id: "point-1", point: "First point", anchors: ["¶1"])
+            ],
+            status: .ready,
+            fullText: "Full cached text"
+        )
+        try await database.saveContent(hydrated)
+
+        let metadataOnly = Content(
+            id: "hydrated-1",
+            title: "Hydrated Content",
+            sourceType: .text,
+            l0Summary: "Detailed summary",
+            l1Outline: nil,
+            status: .ready,
+            updatedAt: Date().addingTimeInterval(60),
+            fullText: nil
+        )
+        try await database.saveContent(metadataOnly)
+
+        let fetched = try await database.fetchContent(id: "hydrated-1")
+        XCTAssertEqual(fetched?.fullText, "Full cached text")
+        XCTAssertEqual(fetched?.l1Outline?.first?.point, "First point")
+    }
 }

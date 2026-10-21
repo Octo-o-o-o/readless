@@ -12,6 +12,7 @@ from app.models.channel import Channel  # noqa: F401
 
 # Import all models to ensure they're registered with Base.metadata
 from app.models.content import Content  # noqa: F401
+from app.models.content_job import ContentJob  # noqa: F401
 from app.models.content_tag import ContentTag  # noqa: F401
 from app.models.paragraph import Paragraph  # noqa: F401
 from app.models.podcast import Podcast  # noqa: F401

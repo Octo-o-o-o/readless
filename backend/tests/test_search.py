@@ -4,7 +4,11 @@ These tests require NO database, NO API keys, and NO network access.
 They verify schema validation, structural correctness, and route registration.
 """
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
+from fastapi import HTTPException
 
 # ------------------------------------------------------------------ #
 #  SearchRequest schema
@@ -29,8 +33,21 @@ class TestSearchRequest:
     def test_empty_query(self) -> None:
         from app.routers.search import SearchRequest
 
-        req = SearchRequest(query="")
-        assert req.query == ""
+        with pytest.raises(Exception):
+            SearchRequest(query="")
+
+    def test_query_is_trimmed_and_collapsed(self) -> None:
+        from app.routers.search import SearchRequest
+
+        req = SearchRequest(query="  recent   AI \n papers  ")
+        assert req.query == "recent AI papers"
+
+    def test_query_too_long(self) -> None:
+        from app.config import settings
+        from app.routers.search import SearchRequest
+
+        with pytest.raises(Exception):
+            SearchRequest(query="x" * (settings.search_max_query_chars + 1))
 
     def test_serialization(self) -> None:
         from app.routers.search import SearchRequest
@@ -73,6 +90,12 @@ class TestSearchAgentStructure:
 
         assert hasattr(SearchAgent, "search")
         assert callable(getattr(SearchAgent, "search"))
+
+    def test_has_retrieve_method(self) -> None:
+        from app.services.search_agent import SearchAgent
+
+        assert hasattr(SearchAgent, "retrieve")
+        assert callable(getattr(SearchAgent, "retrieve"))
 
     def test_has_parse_intent_method(self) -> None:
         from app.services.search_agent import SearchAgent
@@ -123,6 +146,7 @@ class TestSearchRouterRegistration:
 
         paths = [route.path for route in app.routes]
         assert "/api/v1/search/" in paths
+        assert "/api/v1/search/retrieve" in paths
 
     def test_search_post_route_exists(self) -> None:
         from app.main import app
@@ -133,6 +157,18 @@ class TestSearchRouterRegistration:
             if hasattr(route, "methods")
             and "POST" in route.methods
             and route.path == "/api/v1/search/"
+        ]
+        assert len(post_routes) == 1
+
+    def test_search_retrieve_post_route_exists(self) -> None:
+        from app.main import app
+
+        post_routes = [
+            route
+            for route in app.routes
+            if hasattr(route, "methods")
+            and "POST" in route.methods
+            and route.path == "/api/v1/search/retrieve"
         ]
         assert len(post_routes) == 1
 
@@ -186,3 +222,135 @@ class TestSearchLazyInit:
         agent = SearchAgent()
         # The internal _client should be None until first access
         assert agent._client is None
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_falls_back_without_ai(self) -> None:
+        from app.services.search_agent import SearchAgent
+
+        agent = SearchAgent()
+        source = SimpleNamespace(
+            id="content-1",
+            title="Search Result",
+            l0_summary="A concise summary of the document.",
+            l1_outline=[{"point": "Important takeaway"}],
+            source_url="https://example.com",
+        )
+
+        with patch("app.services.search_agent.settings.openai_api_key", ""):
+            result = await agent._generate_answer("test query", [source])
+
+        assert "Search Result" in result["answer"]
+        assert result["sources"][0]["id"] == "content-1"
+
+
+class TestSearchRateLimiter:
+    @pytest.mark.asyncio
+    async def test_blocks_after_limit(self) -> None:
+        from app.services.rate_limiter import InMemoryRateLimiter
+
+        clock = {"now": 100.0}
+        limiter = InMemoryRateLimiter(clock=lambda: clock["now"])
+
+        await limiter.check(
+            scope="search",
+            identifier="user-1",
+            limit=2,
+            window_seconds=60,
+            detail="Too many requests.",
+        )
+        await limiter.check(
+            scope="search",
+            identifier="user-1",
+            limit=2,
+            window_seconds=60,
+            detail="Too many requests.",
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await limiter.check(
+                scope="search",
+                identifier="user-1",
+                limit=2,
+                window_seconds=60,
+                detail="Too many requests.",
+            )
+
+        assert exc_info.value.status_code == 429
+        assert exc_info.value.headers == {"Retry-After": "60"}
+
+    @pytest.mark.asyncio
+    async def test_expires_old_requests(self) -> None:
+        from app.services.rate_limiter import InMemoryRateLimiter
+
+        clock = {"now": 100.0}
+        limiter = InMemoryRateLimiter(clock=lambda: clock["now"])
+
+        await limiter.check(
+            scope="search",
+            identifier="user-1",
+            limit=1,
+            window_seconds=60,
+            detail="Too many requests.",
+        )
+
+    @pytest.mark.asyncio
+    async def test_sweep_removes_stale_buckets(self) -> None:
+        from app.services.rate_limiter import InMemoryRateLimiter
+
+        clock = {"now": 100.0}
+        limiter = InMemoryRateLimiter(
+            clock=lambda: clock["now"],
+            sweep_interval=2,
+        )
+
+        await limiter.check(
+            scope="search",
+            identifier="user-1",
+            limit=5,
+            window_seconds=10,
+            detail="Too many requests.",
+        )
+
+        clock["now"] = 200.0
+        await limiter.check(
+            scope="search",
+            identifier="user-2",
+            limit=5,
+            window_seconds=10,
+            detail="Too many requests.",
+        )
+
+        assert "search:user-1" not in limiter._buckets
+        assert "search:user-2" in limiter._buckets
+        clock["now"] = 161.0
+
+        await limiter.check(
+            scope="search",
+            identifier="user-1",
+            limit=1,
+            window_seconds=60,
+            detail="Too many requests.",
+        )
+
+    @pytest.mark.asyncio
+    async def test_router_rate_limit_short_circuits_before_agent(self) -> None:
+        import app.routers.search as search_mod
+        from app.routers.search import SearchRequest
+
+        class BlockingLimiter:
+            async def check(self, **_kwargs) -> None:
+                raise HTTPException(status_code=429, detail="Slow down")
+
+        with patch.object(
+            search_mod,
+            "_get_router_rate_limiter",
+            return_value=BlockingLimiter(),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await search_mod.retrieve(
+                    SearchRequest(query="hello"),
+                    db=None,
+                    user_id="user-1",
+                )
+
+        assert exc_info.value.status_code == 429

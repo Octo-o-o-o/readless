@@ -88,14 +88,14 @@ Before testing, sign out of production App Store to avoid conflicts:
 
 ```bash
 cd /Users/wangyixiao/WorkSpace/readless/macos
-swift run App
+open Readless.xcodeproj
 ```
 
-### 3. Authenticate with Clerk
+### 3. Authenticate with Readless account
 
-- Sign in to Readless with your Clerk account
+- Sign in to Readless with your Readless account
 - This is separate from App Store sandbox account
-- Clerk account authenticates with backend; sandbox account purchases products
+- Readless account authenticates with backend; sandbox account purchases products
 
 ---
 
@@ -107,7 +107,7 @@ Test the complete purchase flow for a new user subscribing to Basic.
 
 #### Test Steps
 
-1. **Sign in to Readless** with Clerk account
+1. **Sign in to Readless** with your Readless account
 2. **Navigate to Subscription/Settings screen**
 3. **Verify UI shows**:
    - [ ] "Basic Monthly" product card with $4.99/month
@@ -304,7 +304,7 @@ Test restoring a previous subscription after reinstalling the app.
      defaults delete com.readless.app
      ```
    - Relaunch app
-3. **Sign in to Readless** with same Clerk account
+3. **Sign in to Readless** with the same Readless account
 4. **Verify initial state**:
    - [ ] No subscription badge shown (app doesn't know about purchase yet)
    - [ ] "Subscribe" buttons enabled
@@ -563,12 +563,12 @@ Test subscription syncing across multiple devices.
 #### Test Steps
 
 **Device A** (Initial Purchase):
-1. Mac A: Sign in with `test1@readless.test` (Clerk account)
+1. Mac A: Sign in with `test1@readless.test` (Readless account)
 2. Purchase Basic Monthly
 3. Verify subscription active
 
 **Device B** (Sync Subscription):
-1. Mac B: Sign in with same Clerk account
+1. Mac B: Sign in with the same Readless account
 2. Navigate to Subscription screen
 3. **Verify initial state**:
    - [ ] No subscription shown (haven't synced yet)
@@ -580,7 +580,7 @@ Test subscription syncing across multiple devices.
 - [ ] Device B restores subscription successfully
 - [ ] Same subscription data loaded (tier, expiration)
 - [ ] Both devices show "Basic" badge
-- [ ] Backend recognizes same user (via Clerk user_id)
+- [ ] Backend recognizes the same user account
 - [ ] Only ONE active subscription (not duplicate)
 
 **Verification**:
@@ -660,7 +660,7 @@ For each test scenario, verify the following:
 - [ ] **JWS Valid**: StoreKit JWS decoded and validated successfully
 - [ ] **Apple Verified**: Receipt validated with Apple (JWS signature)
 - [ ] **Database Updated**: User subscription record created/updated:
-  - `user_id` matches Clerk user
+  - `user_id` matches the same Readless user
   - `subscription_tier` correct (`free`/`basic`/`pro`)
   - `product_id` correct (`com.readless.basic.monthly` or `.pro.monthly`)
   - `transaction_id` from StoreKit
@@ -884,7 +884,7 @@ grep -r "com.readless.app" /Users/wangyixiao/WorkSpace/readless/macos/Package.sw
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "Product not found" | Product ID mismatch or not configured | Verify product IDs in App Store Connect match code |
-| "User not authenticated" | Clerk authentication failed | Sign in to Readless with Clerk account |
+| "User not authenticated" | Readless authentication failed | Sign in to Readless with your Readless account |
 | "Purchase cancelled" | User tapped "Cancel" in StoreKit sheet | Normal user action, no fix needed |
 | "Receipt verification failed" | Backend unreachable or returned error | Check backend status, use "Restore Purchases" |
 | "Cannot Connect to App Store" | Not signed in to sandbox account | Sign in with sandbox account in purchase sheet |
@@ -1091,7 +1091,7 @@ After app is live, monitor these metrics:
 1. **Test on fresh Mac** (not development machine):
    ```bash
    # Download app from App Store
-   # Sign in with new Clerk account
+   # Sign in with a new Readless account
    # Purchase subscription
    # Verify all features work
    ```

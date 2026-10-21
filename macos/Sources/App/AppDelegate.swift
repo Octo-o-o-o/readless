@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 },
                 onSummon: {
-                    NotificationCenter.default.post(name: .showSummonPanel, object: nil)
+                    // Summon panel not yet implemented; hotkey is reserved for future use.
                 },
                 onCommandBar: {
                     NotificationCenter.default.post(name: .toggleCommandBar, object: nil)
@@ -119,6 +119,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Notification Names
 
 extension Notification.Name {
-    static let showSummonPanel = Notification.Name("showSummonPanel")
     static let toggleCommandBar = Notification.Name("toggleCommandBar")
 }

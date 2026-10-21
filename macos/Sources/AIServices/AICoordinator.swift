@@ -26,6 +26,7 @@ public final class AICoordinator {
     // Preview panel state (for Phase 2)
     public var showPreviewPanel: Bool = false
     public var previewContent: Content?
+    public var requestedContentID: String?
 
     // Semantic Search State
     public var searchQuery = ""
@@ -51,6 +52,13 @@ public final class AICoordinator {
     public func hideCommandBar() {
         isCommandBarVisible = false
         commandBarImportState = .idle
+    }
+
+    @MainActor
+    public func requestOpenContent(_ contentID: String) {
+        requestedContentID = contentID
+        showPreviewPanel = false
+        hideCommandBar()
     }
 
     @MainActor
